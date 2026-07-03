@@ -627,28 +627,48 @@ def settings():
 # Webhook endpoint (receives Telegram updates)
 # ─────────────────────────────────────────
 
+# Cache bot user details globally to bypass get_me() requests on every webhook call
+_cached_bot_user = None
+
 @app.route(f"/webhook/<token>", methods=["POST"])
 def telegram_webhook(token):
     """Receive updates from Telegram via webhook."""
     if token != BOT_TOKEN:
         return "Forbidden", 403
 
-    from bot.main import get_ptb_app
-    from telegram import Update
+    from telegram import Update, User as TGUser
+    from telegram.ext import Application
+    from bot.main import register_handlers
 
     async def _handle_update_async():
+        global _cached_bot_user
         data = request.get_json(force=True)
-        ptb_app = get_ptb_app()
-        
-        # Reset the lifecycle so it binds to the current request's event loop
-        ptb_app._initialized = False
-        if hasattr(ptb_app, "_Application__stop_running_marker"):
-            ptb_app._Application__stop_running_marker = None
+
+        # Create a completely fresh Application instance for this request's loop
+        ptb_app = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .build()
+        )
+        register_handlers(ptb_app)
+
+        # Inject the cached bot user directly to bypass the HTTP call to get_me()
+        if _cached_bot_user:
+            ptb_app.bot._bot_user = _cached_bot_user
+            ptb_app.bot._initialized = True
+
+        try:
+            await ptb_app.initialize()
             
-        await ptb_app.initialize()
-        
-        update = Update.de_json(data, ptb_app.bot)
-        await ptb_app.process_update(update)
+            # Cache the bot user for future requests if not done yet
+            if not _cached_bot_user and ptb_app.bot._bot_user:
+                _cached_bot_user = ptb_app.bot._bot_user
+
+            update = Update.de_json(data, ptb_app.bot)
+            await ptb_app.process_update(update)
+        finally:
+            # Cleanly shutdown the HTTP client connections for this closed loop
+            await ptb_app.shutdown()
 
     try:
         asyncio.run(_handle_update_async())

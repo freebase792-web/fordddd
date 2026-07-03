@@ -85,6 +85,18 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not file_id:
         return
 
+    # Check if we are waiting for an app icon image
+    if context.user_data.get("awaiting_app_icon"):
+        context.user_data.pop("awaiting_app_icon", None)
+        set_config("apk_icon_file_id", file_id)
+        await message.reply_text(
+            f"✅ *App Icon Updated successfully!*\n\n"
+            f"File ID: `{file_id}`\n"
+            f"Users will now see this icon before downloading the APK.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
     # Check if we are waiting for broadcast content
     if context.user_data.get("awaiting_broadcast_content"):
         context.user_data.pop("awaiting_broadcast_content", None)
@@ -469,6 +481,35 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 chat_id=chat_id,
                 text="🌸 *Please send a new video, image, or voice note to set it as the user demo content:*",
                 parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_app_icon":
+            context.user_data["awaiting_app_icon"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="🖼️ *Please send the Image or Sticker you want to use as the App Icon:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data in ("admin_toggle_demo", "admin_toggle_maintenance"):
+            from bot.utils.keyboards import admin_panel_keyboard
+            
+            if data == "admin_toggle_demo":
+                current = get_config("demo_enabled", "true").lower() == "true"
+                set_config("demo_enabled", "false" if current else "true")
+            else:
+                current = get_config("bot_enabled", "true").lower() == "true"
+                set_config("bot_enabled", "false" if current else "true")
+                
+            # Re-draw the keyboard with the updated config status
+            demo_on = get_config("demo_enabled", "true").lower() == "true"
+            bot_active = get_config("bot_enabled", "true").lower() == "true"
+            
+            await query.edit_message_text(
+                "⚡ *NexusBot Admin Panel* ⚡\n\n"
+                "Manage your APKs, settings, content, and broadcasts directly from Telegram below:",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=admin_panel_keyboard(demo_on, bot_active)
             )
 
         elif data == "admin_how_to_use":

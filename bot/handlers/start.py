@@ -39,11 +39,14 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # --- ADMIN FLOW: Show Admin Panel directly ---
         if is_admin(user_tg.id):
+            demo_on = get_config("demo_enabled", "true").lower() == "true"
+            bot_active = get_config("bot_enabled", "true").lower() == "true"
+            
             await update.message.reply_text(
                 "⚡ *NexusBot Admin Panel* ⚡\n\n"
                 "Manage your APKs, settings, content, and broadcasts directly from Telegram below:",
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=admin_panel_keyboard()
+                reply_markup=admin_panel_keyboard(demo_on, bot_active)
             )
             return
 

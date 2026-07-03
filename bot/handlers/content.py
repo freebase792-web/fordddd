@@ -57,8 +57,14 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Separate active APK for the button
         active_apk = next((c for c in contents if c.content_type == "apk"), None)
 
-        # Deliver each piece in order
+        # Check if demo content delivery is enabled
+        demo_enabled = get_config("demo_enabled", "true").lower() == "true"
+
+        # Deliver each piece in order if demo is ON
         for item in contents:
+            if not demo_enabled and item.content_type != "apk":
+                continue  # Skip general content/demo items if demo toggle is OFF
+                
             try:
                 if item.content_type == "text":
                     await context.bot.send_message(
@@ -171,6 +177,19 @@ async def send_apk_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption_parts.append(f"\n📋 *What's new:*\n{active_apk.changelog}")
         caption_parts.append("\n⬇️ Tap to install!")
         caption = "\n".join(caption_parts)
+
+        # Deliver App Icon if set
+        app_icon_id = get_config("apk_icon_file_id", "")
+        if app_icon_id:
+            try:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=app_icon_id,
+                    caption="📦 *Preparing app installation...*",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as icon_err:
+                logger.error(f"Failed to send App Icon: {icon_err}")
 
         await context.bot.send_document(
             chat_id=chat_id,

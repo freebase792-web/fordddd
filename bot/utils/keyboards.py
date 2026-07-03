@@ -68,27 +68,37 @@ def stats_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def admin_panel_keyboard() -> InlineKeyboardMarkup:
+def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> InlineKeyboardMarkup:
     """Construct the Telegram-based Admin Panel controls matching the user's requested layout."""
+    demo_status = "🟢 Demo Content: ON" if demo_on else "🔴 Demo Content: OFF"
+    bot_status = "🟢 Bot: ACTIVE" if bot_active else "🟡 Bot: MAINTENANCE"
+    
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Broadcast Media 📢", callback_data="admin_prompt_broadcast_media")],
         [InlineKeyboardButton("📲 Quick Send APK To All 📲", callback_data="admin_broadcast_apk")],
+        [
+            InlineKeyboardButton(demo_status, callback_data="admin_toggle_demo"),
+            InlineKeyboardButton(bot_status, callback_data="admin_toggle_maintenance")
+        ],
         [
             InlineKeyboardButton("📱 Set APK 📱", callback_data="admin_prompt_set_apk"),
             InlineKeyboardButton("🗑️ Remove APK 🗑️", callback_data="admin_remove_apk")
         ],
         [
-            InlineKeyboardButton("📛 APK Name 📛", callback_data="admin_prompt_apk_name"),
+            InlineKeyboardButton("🖼️ Set App Icon 🖼️", callback_data="admin_prompt_app_icon"),
+            InlineKeyboardButton("🌸 Set Demo Media 🌸", callback_data="admin_prompt_demo")
+        ],
+        [
+            InlineKeyboardButton("📛 APK Display Name 📛", callback_data="admin_prompt_apk_name"),
             InlineKeyboardButton("💬 APK Caption 💬", callback_data="admin_prompt_apk_caption")
         ],
         [
             InlineKeyboardButton("📝 Welcome Message 📝", callback_data="admin_prompt_welcome"),
-            InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo")
+            InlineKeyboardButton("📊 Get Stats Report 📊", callback_data="admin_get_report")
         ],
         [
-            InlineKeyboardButton("❓ How to use ❓", callback_data="admin_how_to_use"),
-            InlineKeyboardButton("📊 Get Report 📊", callback_data="admin_get_report")
-        ],
-        [InlineKeyboardButton("📖 Admin Guide 📖", callback_data="admin_guide")]
+            InlineKeyboardButton("❓ Help Guide ❓", callback_data="admin_how_to_use"),
+            InlineKeyboardButton("❌ Close Panel", callback_data="admin_cancel")
+        ]
     ])
 
