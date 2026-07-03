@@ -34,6 +34,20 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = Session()
     try:
+        from bot.handlers.admin_upload import is_admin
+        from bot.utils.keyboards import admin_panel_keyboard
+
+        # --- ADMIN FLOW: Show Admin Panel directly ---
+        if is_admin(user_tg.id):
+            await update.message.reply_text(
+                "⚡ *NexusBot Admin Panel* ⚡\n\n"
+                "Manage your APKs, settings, content, and broadcasts directly from Telegram below:",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=admin_panel_keyboard()
+            )
+            return
+
+        # --- USER FLOW ---
         user = session.get(User, user_tg.id)
         is_new = user is None
 
@@ -65,6 +79,26 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Log analytics
             session.add(Analytics(user_id=user_tg.id, event="start", metadata_={"is_new": True}))
+            session.flush()
+
+            # ── Real-time log notification to Admin inside Telegram ──
+            from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
+            if ADMIN_TELEGRAM_ID:
+                try:
+                    name_str = f"{user_tg.first_name or ''} {user_tg.last_name or ''}".strip()
+                    username_str = f"@{user_tg.username}" if user_tg.username else "—"
+                    await context.bot.send_message(
+                        chat_id=ADMIN_TELEGRAM_ID,
+                        text=(
+                            f"🆕 *New user*\n\n"
+                            f"👤 Name: *{name_str or 'Unknown'}*\n"
+                            f"🆔 ID: `{user_tg.id}`\n"
+                            f"📛 Username: {username_str}"
+                        ),
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception as log_err:
+                    logger.error(f"Failed to send join log to admin: {log_err}")
 
             if referrer_id:
                 # Notify referrer about new join (non-blocking)

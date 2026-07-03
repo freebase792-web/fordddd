@@ -93,6 +93,30 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
 
         logger.info(f"Broadcast {broadcast_id} complete: {sent}/{total} sent, {failed} failed")
 
+        # ── Send completion report to Admin inside Telegram (matching reference image) ──
+        from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
+        if ADMIN_TELEGRAM_ID:
+            try:
+                # Custom report heading based on message type
+                title_lbl = "APK Blast" if broadcast.message_type == "apk" else "Broadcast"
+                await bot.send_message(
+                    chat_id=ADMIN_TELEGRAM_ID,
+                    text=(
+                        f"🎉 *{title_lbl} Complete!* 🎉\n"
+                        f"──────────────────────────\n"
+                        f"💬 Type: *{broadcast.message_type.upper()}*\n"
+                        f"👥 Total Users: *{total}*\n"
+                        f"✅ Successfully Sent: *{sent}*\n"
+                        f"🚫 Blocked (Skipped): *{failed}*\n"
+                        f"⚠️ Other Fails: *0*\n"
+                        f"──────────────────────────\n"
+                        f"All done! 💪🔥"
+                    ),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as report_err:
+                logger.error(f"Failed to send broadcast completion report: {report_err}")
+
     except Exception as e:
         logger.error(f"Broadcast {broadcast_id} failed: {e}", exc_info=True)
         if broadcast:

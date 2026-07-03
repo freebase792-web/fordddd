@@ -29,15 +29,20 @@ def reconsider_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def content_keyboard(apk_version: str = None, apk_button_text: str = "⬇️ Download App") -> InlineKeyboardMarkup:
-    """Content screen buttons shown after YES."""
+def content_keyboard(apk_version: str = None, apk_button_text: str = "Download APK") -> InlineKeyboardMarkup:
+    """Content screen buttons matching user's reference image."""
     buttons = []
+    # Button 1: Download APK
+    btn_text = f"📱 {apk_button_text}"
     if apk_version:
-        buttons.append([InlineKeyboardButton(
-            f"{apk_button_text} v{apk_version}", callback_data="download_apk"
-        )])
-    buttons.append([InlineKeyboardButton("🔗 Invite Friends & Earn XP", callback_data="get_referral")])
-    buttons.append([InlineKeyboardButton("📊 My Stats", callback_data="my_stats")])
+        btn_text = f"📱 {apk_button_text} v{apk_version}"
+    buttons.append([InlineKeyboardButton(btn_text, callback_data="download_apk")])
+    
+    # Button 2: See Demo
+    buttons.append([InlineKeyboardButton("🌸 See Demo", callback_data="show_content")])
+    
+    # Button 3: Referrals
+    buttons.append([InlineKeyboardButton("🔗 Share & Earn XP", callback_data="get_referral")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -61,3 +66,29 @@ def stats_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎁 See Content Again", callback_data="show_content")],
         [InlineKeyboardButton("🔗 Get Referral Link", callback_data="get_referral")],
     ])
+
+
+def admin_panel_keyboard() -> InlineKeyboardMarkup:
+    """Construct the Telegram-based Admin Panel controls matching the user's requested layout."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Broadcast Media 📢", callback_data="admin_prompt_broadcast_media")],
+        [InlineKeyboardButton("📲 Quick Send APK To All 📲", callback_data="admin_broadcast_apk")],
+        [
+            InlineKeyboardButton("📱 Set APK 📱", callback_data="admin_prompt_set_apk"),
+            InlineKeyboardButton("🗑️ Remove APK 🗑️", callback_data="admin_remove_apk")
+        ],
+        [
+            InlineKeyboardButton("📛 APK Name 📛", callback_data="admin_prompt_apk_name"),
+            InlineKeyboardButton("💬 APK Caption 💬", callback_data="admin_prompt_apk_caption")
+        ],
+        [
+            InlineKeyboardButton("📝 Welcome Message 📝", callback_data="admin_prompt_welcome"),
+            InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo")
+        ],
+        [
+            InlineKeyboardButton("❓ How to use ❓", callback_data="admin_how_to_use"),
+            InlineKeyboardButton("📊 Get Report 📊", callback_data="admin_get_report")
+        ],
+        [InlineKeyboardButton("📖 Admin Guide 📖", callback_data="admin_guide")]
+    ])
+

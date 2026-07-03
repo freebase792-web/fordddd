@@ -69,6 +69,9 @@ def get_ptb_app() -> Application:
                 admin_callback_handler,
                 pattern="^admin_",
             ), group=0)
+            
+            # Admin sends /admin command
+            _ptb_app.add_handler(CommandHandler("admin", start_handler), group=0)
 
         # ── Regular user handlers ────────────────────────────────────────
         _ptb_app.add_handler(CommandHandler("start", start_handler), group=1)

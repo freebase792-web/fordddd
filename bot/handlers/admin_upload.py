@@ -1,30 +1,22 @@
 """
 Admin Telegram Handler — For the bot owner only.
-The admin can send files directly to the bot and they are automatically
-saved as content or as the active APK. No file_id copy-pasting needed.
-
-HOW TO USE:
-  - Set ADMIN_TELEGRAM_ID in your .env to your Telegram numeric user ID.
-  - Send any file directly to your bot in Telegram chat.
-  - The bot responds with a confirmation and saves it automatically.
-  - For APK: send the .apk file — it replaces the active APK instantly.
-  - For other media: send the file — the bot asks what type to save as.
-
-Get your Telegram ID: message @userinfobot → it shows your numeric ID.
+Provides a complete, rich, interactive Admin Control Panel directly in Telegram.
+Includes: Set APK, Send APK to All, set Welcome Text, set Demo, statistics reports, and real-time logs.
 """
 
 import logging
 import os
+import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from bot.models.database import Session, Content, BotConfig, set_config, get_config
+from bot.models.database import Session, Content, BotConfig, set_config, get_config, User, Broadcast, Analytics
 
 logger = logging.getLogger(__name__)
 
-# Admin Telegram User ID — only this user can send files to the bot
+# Admin Telegram User ID — only this user can access admin functions
 ADMIN_TELEGRAM_ID = int(os.environ.get("ADMIN_TELEGRAM_ID", "0"))
 
 
@@ -36,16 +28,14 @@ def is_admin(user_id: int) -> bool:
 async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles any file/media sent directly to the bot by the admin.
-    Auto-detects type and saves to database immediately.
     """
     user = update.effective_user
     if not is_admin(user.id):
-        return  # Silently ignore non-admin file sends
+        return
 
     message = update.message
     chat_id = update.effective_chat.id
 
-    # Detect what was sent
     file_id = None
     content_type = None
     file_name = None
@@ -55,9 +45,7 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         doc = message.document
         file_id = doc.file_id
         file_name = doc.file_name or "file"
-        # Auto-detect APK by mime type or filename extension
-        if (doc.mime_type == "application/vnd.android.package-archive"
-                or (file_name and file_name.lower().endswith(".apk"))):
+        if doc.mime_type == "application/vnd.android.package-archive" or (file_name and file_name.lower().endswith(".apk")):
             content_type = "apk"
             detected_label = "📱 APK File"
         else:
@@ -71,7 +59,6 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         detected_label = "🎬 Video"
 
     elif message.photo:
-        # Use highest resolution photo
         file_id = message.photo[-1].file_id
         content_type = "image"
         file_name = "photo.jpg"
@@ -96,82 +83,162 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         detected_label = "🎞️ GIF / Animation"
 
     if not file_id:
-        return  # Unknown type, ignore
+        return
 
-    # Store file_id in context for the callback to use
+    # Check if we are waiting for broadcast content
+    if context.user_data.get("awaiting_broadcast_content"):
+        context.user_data.pop("awaiting_broadcast_content", None)
+        context.user_data["broadcast_file_id"] = file_id
+        context.user_data["broadcast_type"] = content_type
+        context.user_data["broadcast_caption"] = message.caption or ""
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Attach APK Button", callback_data="admin_confirm_bc_yes_apk"),
+                InlineKeyboardButton("❌ No APK Button", callback_data="admin_confirm_bc_no_apk")
+            ],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+        ])
+        
+        await message.reply_text(
+            f"📢 *Broadcast {detected_label} Content Saved!*\n\n"
+            f"Do you want to attach the APK download button below this broadcast?",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard
+        )
+        return
+
+    # Check if we were specifically waiting for a demo file
+    if context.user_data.get("awaiting_demo_file"):
+        context.user_data.pop("awaiting_demo_file", None)
+        session = Session()
+        try:
+            # Archive old demo content
+            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
+            
+            # Save new demo file
+            new_demo = Content(
+                content_type=content_type,
+                file_id=file_id,
+                file_name=file_name,
+                caption=message.caption or "Check out the exclusive demo! 🌸",
+                is_active=True,
+                order_index=1,
+            )
+            session.add(new_demo)
+            session.commit()
+            
+            # Set welcome GIF/animation if it is an animation
+            if content_type == "image" and file_name.endswith(".gif"):
+                set_config("welcome_gif_id", file_id)
+
+            await message.reply_text(
+                f"🌸 *Demo Content Updated successfully!*\n\n"
+                f"Saved a *{content_type}* file as the active user demo view.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            session.rollback()
+            await message.reply_text(f"❌ Error setting demo: {e}")
+        finally:
+            session.close()
+        return
+
+    # Store file_id in context for callback
     context.user_data["pending_file_id"] = file_id
     context.user_data["pending_file_name"] = file_name
     context.user_data["pending_content_type"] = content_type
     context.user_data["pending_caption"] = message.caption or ""
 
-    # --- APK: Auto-save immediately, no prompt needed ---
+    # If it is an APK, run the APK version prompt flow
     if content_type == "apk":
-        await _save_apk(update, context, file_id, file_name, message.caption or "")
+        await _save_apk_prompt(update, context, file_id, file_name, message.caption or "")
         return
 
-    # --- Welcome GIF: If it's a GIF/animation, offer to set as welcome ---
-    if content_type == "image" and detected_label.startswith("🎞️"):
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🌟 Set as Welcome GIF", callback_data="admin_set_welcome_gif"),
-                InlineKeyboardButton("📦 Save as Content", callback_data="admin_save_content"),
-            ],
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
-        ])
-        await message.reply_text(
-            f"✅ *{detected_label} received!*\n\n"
-            f"`{file_id}`\n\n"
-            f"What should I do with this?",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=keyboard,
-        )
-        return
-
-    # --- All other media: Ask what to do ---
+    # For other items, show selection menu
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📦 Add to User Content", callback_data="admin_save_content"),
-            InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel"),
-        ]
+            InlineKeyboardButton("🌸 Set as Demo content", callback_data="admin_set_as_demo"),
+            InlineKeyboardButton("📦 Add to General Content", callback_data="admin_save_content"),
+        ],
+        [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
     ])
 
     await message.reply_text(
         f"✅ *{detected_label} received!*\n\n"
-        f"📋 File ID saved:\n`{file_id}`\n\n"
-        f"Tap below to add this to your bot's content.",
+        f"Choose what to do with this file:",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard,
     )
 
 
-async def _save_apk(
+async def _save_apk_prompt(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     file_id: str,
     file_name: str,
     caption: str,
 ):
-    """Auto-save a new APK, archiving the old one."""
+    """Instantly save and activate the new APK with auto-incremented versioning."""
     message = update.message
-    chat_id = update.effective_chat.id
+    session = Session()
+    try:
+        # Fetch the last active APK to auto-increment version
+        last_apk = session.query(Content).filter_by(content_type="apk").order_by(Content.id.desc()).first()
+        
+        # Determine new version
+        new_version = "1.0"
+        if last_apk and last_apk.version:
+            try:
+                new_version = str(round(float(last_apk.version) + 0.1, 1))
+            except ValueError:
+                new_version = "1.0"
 
-    # Ask for version number
-    context.user_data["awaiting_apk_version"] = True
-    context.user_data["pending_file_id"] = file_id
-    context.user_data["pending_file_name"] = file_name
-    context.user_data["pending_caption"] = caption
+        # Archive old active APKs
+        session.query(Content).filter_by(content_type="apk", is_active=True).update({"is_active": False})
 
-    await message.reply_text(
-        f"📱 *APK received!* `{file_name}`\n\n"
-        f"Reply with the version number (e.g. `1.2`) and optionally a changelog:\n\n"
-        f"Format:\n`1.2\nWhat's new in this version...`",
-        parse_mode=ParseMode.MARKDOWN,
-    )
+        # Save and activate new APK
+        new_apk = Content(
+            content_type="apk",
+            file_id=file_id,
+            file_name=file_name,
+            version=new_version,
+            changelog=caption or "Performance improvements and bug fixes.",
+            is_active=True,
+        )
+        session.add(new_apk)
+        session.commit()
+
+        # Keyboard options for quick edits or broadcast
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✏️ Edit Version/Changelog", callback_data=f"admin_edit_apk_meta_{new_apk.id}"),
+                InlineKeyboardButton("📲 Send to All Users", callback_data="admin_broadcast_apk")
+            ],
+            [InlineKeyboardButton("✅ Done", callback_data="admin_cancel")]
+        ])
+
+        await message.reply_text(
+            f"🎉 *APK Uploaded & Activated Instantly!*\n\n"
+            f"📱 File: `{file_name}`\n"
+            f"📌 Version: *v{new_version}* (Auto-incremented)\n"
+            f"📋 Changelog: _{caption or 'Performance improvements.'}_\n\n"
+            f"🚀 *New users will now automatically download this version!*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard
+        )
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error auto-saving APK: {e}", exc_info=True)
+        await message.reply_text(f"❌ Error saving APK: {e}")
+    finally:
+        session.close()
 
 
 async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handles text messages from admin — used to receive version info after APK upload.
+    Handles text inputs from the admin when configuring values.
     """
     user = update.effective_user
     if not is_admin(user.id):
@@ -179,68 +246,123 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     message = update.message
     text = message.text.strip()
+    session = Session()
 
-    # Handle APK version input
-    if context.user_data.get("awaiting_apk_version"):
-        context.user_data.pop("awaiting_apk_version")
-        lines = text.split("\n", 1)
-        version = lines[0].strip()
-        changelog = lines[1].strip() if len(lines) > 1 else ""
-
-        file_id = context.user_data.pop("pending_file_id", None)
-        file_name = context.user_data.pop("pending_file_name", "App.apk")
-        caption = context.user_data.pop("pending_caption", "")
-
-        if not file_id:
-            await message.reply_text("⚠️ No APK pending. Please send the APK file first.")
+    try:
+        # Check if we are waiting for broadcast text content
+        if context.user_data.get("awaiting_broadcast_content"):
+            context.user_data.pop("awaiting_broadcast_content", None)
+            context.user_data["broadcast_text"] = text
+            context.user_data["broadcast_type"] = "text"
+            
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Attach APK Button", callback_data="admin_confirm_bc_yes_apk"),
+                    InlineKeyboardButton("❌ No APK Button", callback_data="admin_confirm_bc_no_apk")
+                ],
+                [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            ])
+            
+            await message.reply_text(
+                f"📢 *Broadcast Text Content Saved!*\n\n"
+                f"Do you want to attach the APK download button below this message?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
             return
 
-        # Archive old APK and save new one
-        session = Session()
-        try:
-            # Archive existing active APKs
-            session.query(Content).filter_by(
-                content_type="apk", is_active=True
-            ).update({"is_active": False})
+        # 1. Handling APK version/changelog input (custom metadata update)
+        if context.user_data.get("awaiting_apk_version"):
+            context.user_data.pop("awaiting_apk_version")
+            lines = text.split("\n", 1)
+            version = lines[0].strip()
+            changelog = lines[1].strip() if len(lines) > 1 else ""
 
-            # Save new APK as active
-            new_apk = Content(
-                content_type="apk",
-                file_id=file_id,
-                file_name=file_name,
-                version=version,
-                changelog=changelog,
-                caption=caption or None,
-                is_active=True,
-            )
-            session.add(new_apk)
-            session.commit()
+            apk_edit_id = context.user_data.pop("awaiting_apk_edit_id", None)
+            
+            if apk_edit_id:
+                # Upgraded path: edit metadata on the auto-saved APK
+                apk_item = session.query(Content).filter_by(id=apk_edit_id).first()
+                if apk_item:
+                    apk_item.version = version
+                    apk_item.changelog = changelog
+                    session.commit()
+                    await message.reply_text(
+                        f"✅ *APK Metadata Updated!*\n\n"
+                        f"📱 File: `{apk_item.file_name}`\n"
+                        f"📌 Custom Version: *v{version}*\n"
+                        f"📋 Changelog: _{changelog or 'None'}_",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await message.reply_text("❌ Error: Could not locate the uploaded APK record.")
+            else:
+                # Fallback path (old code)
+                file_id = context.user_data.pop("pending_file_id", None)
+                file_name = context.user_data.pop("pending_file_name", "App.apk")
 
-            await message.reply_text(
-                f"🎉 *APK Updated Successfully!*\n\n"
-                f"📱 File: `{file_name}`\n"
-                f"📌 Version: *{version}*\n"
-                f"📋 Changelog: {changelog or 'None'}\n\n"
-                f"✅ Old APK archived. New APK is now live!\n"
-                f"📢 Don't forget to send a Broadcast to notify your users!",
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error saving APK: {e}", exc_info=True)
-            await message.reply_text(f"❌ Error saving APK: {e}")
-        finally:
-            session.close()
-        return
+                session.query(Content).filter_by(content_type="apk", is_active=True).update({"is_active": False})
+                new_apk = Content(
+                    content_type="apk",
+                    file_id=file_id,
+                    file_name=file_name,
+                    version=version,
+                    changelog=changelog,
+                    is_active=True,
+                )
+                session.add(new_apk)
+                session.commit()
 
-    # Admin info command
-    if text in ("/admin_info", "/info"):
-        await _show_admin_info(update, context)
-        return
+                await message.reply_text(
+                    f"🎉 *Active APK Configured successfully!*\n\n"
+                    f"📛 Name: `{file_name}`\n"
+                    f"📌 Version: *v{version}*\n"
+                    f"📋 Changelog: _{changelog or 'None'}_",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            return
+
+        # 2. Handling APK name update
+        if context.user_data.get("awaiting_apk_name"):
+            context.user_data.pop("awaiting_apk_name")
+            active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
+            if active_apk:
+                active_apk.file_name = text
+                session.commit()
+                await message.reply_text(f"✅ APK File Name set to: `{text}`")
+            else:
+                await message.reply_text("⚠️ No active APK found. Upload an APK file first!")
+            return
+
+        # 3. Handling APK caption update
+        if context.user_data.get("awaiting_apk_caption"):
+            context.user_data.pop("awaiting_apk_caption")
+            active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
+            if active_apk:
+                active_apk.changelog = text
+                session.commit()
+                await message.reply_text(f"✅ APK Caption/Changelog set to:\n_{text}_", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await message.reply_text("⚠️ No active APK found. Upload an APK file first!")
+            return
+
+        # 4. Handling welcome text update
+        if context.user_data.get("awaiting_welcome_text"):
+            context.user_data.pop("awaiting_welcome_text")
+            set_config("welcome_text", text)
+            await message.reply_text(f"✅ Welcome message updated successfully to:\n\n{text}", parse_mode=ParseMode.MARKDOWN)
+            return
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Admin text config error: {e}", exc_info=True)
+        await message.reply_text(f"❌ Error: {e}")
+    finally:
+        session.close()
 
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle admin-specific inline button callbacks."""
+    """Handle Admin Panel button callbacks."""
     user = update.effective_user
     if not is_admin(user.id):
         return
@@ -248,23 +370,31 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     data = query.data
+    chat_id = update.effective_chat.id
+    session = Session()
 
-    if data == "admin_save_content":
-        file_id = context.user_data.pop("pending_file_id", None)
-        file_name = context.user_data.pop("pending_file_name", "file")
-        content_type = context.user_data.pop("pending_content_type", "document")
-        caption = context.user_data.pop("pending_caption", "")
-
-        if not file_id:
-            await query.edit_message_text("⚠️ No file pending.")
+    try:
+        if data.startswith("admin_edit_apk_meta_"):
+            apk_id = int(data.split("_")[-1])
+            context.user_data["awaiting_apk_version"] = True
+            context.user_data["awaiting_apk_edit_id"] = apk_id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the custom version and changelog.* \n\nFormat:\n`2.0\nYour changelog here...`",
+                parse_mode=ParseMode.MARKDOWN
+            )
             return
 
-        session = Session()
-        try:
-            # Get the highest current order index
+        if data == "admin_save_content":
+            file_id = context.user_data.pop("pending_file_id", None)
+            file_name = context.user_data.pop("pending_file_name", "file")
+            content_type = context.user_data.pop("pending_content_type", "document")
+            caption = context.user_data.pop("pending_caption", "")
+            
             from sqlalchemy import func
             max_order = session.query(func.max(Content.order_index)).scalar() or 0
-            item = Content(
+            
+            new_item = Content(
                 content_type=content_type,
                 file_id=file_id,
                 file_name=file_name,
@@ -272,70 +402,200 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 is_active=True,
                 order_index=max_order + 1,
             )
-            session.add(item)
+            session.add(new_item)
             session.commit()
-            await query.edit_message_text(
-                f"✅ *Content saved!*\n\n"
-                f"Type: `{content_type}`\n"
-                f"File: `{file_name}`\n"
-                f"Order: `{max_order + 1}`\n\n"
-                f"It will now appear in the user content flow.\n"
-                f"Manage it at: /admin/content",
-                parse_mode=ParseMode.MARKDOWN,
+            await query.edit_message_text(f"✅ General content added successfully at order position {max_order + 1}.")
+
+        elif data == "admin_set_as_demo":
+            file_id = context.user_data.pop("pending_file_id", None)
+            file_name = context.user_data.pop("pending_file_name", "file")
+            content_type = context.user_data.pop("pending_content_type", "document")
+            caption = context.user_data.pop("pending_caption", "")
+
+            # Archive old demos
+            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
+
+            new_demo = Content(
+                content_type=content_type,
+                file_id=file_id,
+                file_name=file_name,
+                caption=caption or "Here is your exclusive demo content! 🌸",
+                is_active=True,
+                order_index=1,
             )
-        except Exception as e:
-            session.rollback()
-            await query.edit_message_text(f"❌ Error: {e}")
-        finally:
-            session.close()
+            session.add(new_demo)
+            session.commit()
+            await query.edit_message_text(f"🌸 Demo content set successfully to the new *{content_type}* file.")
 
-    elif data == "admin_set_welcome_gif":
-        file_id = context.user_data.pop("pending_file_id", None)
-        context.user_data.pop("pending_file_name", None)
-        context.user_data.pop("pending_content_type", None)
-        context.user_data.pop("pending_caption", None)
-        if file_id:
-            set_config("welcome_gif_id", file_id)
-            await query.edit_message_text(
-                f"🌟 *Welcome GIF/Animation set!*\n\n"
-                f"New users will now see this animation when they start the bot.\n"
-                f"File ID: `{file_id}`",
-                parse_mode=ParseMode.MARKDOWN,
+        elif data == "admin_prompt_set_apk":
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="📤 *Please send the new .apk file directly to this chat.*",
+                parse_mode=ParseMode.MARKDOWN
             )
-        else:
-            await query.edit_message_text("⚠️ No file pending.")
 
-    elif data == "admin_cancel":
-        context.user_data.clear()
-        await query.edit_message_text("❌ Cancelled.")
+        elif data == "admin_remove_apk":
+            session.query(Content).filter_by(content_type="apk").update({"is_active": False})
+            session.commit()
+            await query.edit_message_text("🗑️ Active APK has been removed. Users can no longer download it.")
 
+        elif data == "admin_prompt_apk_name":
+            context.user_data["awaiting_apk_name"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the name you want to display for the APK file:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
 
-async def _show_admin_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show admin quick-help info."""
-    session = Session()
-    try:
-        from bot.models.database import User, Broadcast
-        total_users = session.query(User).count()
-        active_apk = session.query(Content).filter_by(
-            is_active=True, content_type="apk"
-        ).order_by(Content.id.desc()).first()
+        elif data == "admin_prompt_apk_caption":
+            context.user_data["awaiting_apk_caption"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the caption / changelog description for the APK:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
 
-        msg = (
-            "⚡ *NexusBot Admin Info*\n"
-            "──────────────────────\n"
-            f"👥 Total Users: *{total_users}*\n"
-            f"📱 Active APK: *{active_apk.file_name} v{active_apk.version}*\n"
-            if active_apk else f"📱 Active APK: *None uploaded*\n"
-        )
-        msg += (
-            "\n📤 *Send me any file to save it:*\n"
-            "• APK → auto-replaces active APK\n"
-            "• Video/Image/Voice → added to content\n"
-            "• GIF/Animation → set as welcome animation\n"
-            "\n🌐 Manage everything at your Admin Panel."
-        )
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        elif data == "admin_prompt_welcome":
+            context.user_data["awaiting_welcome_text"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the new Welcome message text (Markdown supported):*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_demo":
+            context.user_data["awaiting_demo_file"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="🌸 *Please send a new video, image, or voice note to set it as the user demo content:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_how_to_use":
+            guide_text = (
+                "❓ *NexusBot Quick Help*\n\n"
+                "• Send *any* file directly to this bot chat, and it will ask where to save it.\n"
+                "• Send an `.apk` file directly to instantly set the new active download.\n"
+                "• Tap *Get Report* to see detailed user sign-ups and referral statistics."
+            )
+            await context.bot.send_message(chat_id=chat_id, text=guide_text, parse_mode=ParseMode.MARKDOWN)
+
+        elif data == "admin_guide":
+            guide_text = (
+                "📖 *Admin Command & Operations Guide*\n\n"
+                "1. **Welcome Message**: Set the onboarding greeting message.\n"
+                "2. **Set Demo**: Set the video/media that YES answers will trigger.\n"
+                "3. **Broadcast**: Push the active APK directly into user chats with the push button."
+            )
+            await context.bot.send_message(chat_id=chat_id, text=guide_text, parse_mode=ParseMode.MARKDOWN)
+
+        elif data == "admin_get_report":
+            total_users = session.query(User).count()
+            yes_users = session.query(User).filter_by(answer_yes=True).count()
+            no_users = session.query(User).filter_by(answer_yes=False).count()
+            downloads = session.query(Analytics).filter_by(event="apk_download").count()
+            
+            report = (
+                "📊 *NexusBot Active Report*\n"
+                "──────────────────────────\n"
+                f"👤 Total Joined Users: *{total_users}*\n"
+                f"✅ Said YES to question: *{yes_users}*\n"
+                f"❌ Said NO to question: *{no_users}*\n"
+                f"📥 Total APK Downloads: *{downloads}*\n"
+                "──────────────────────────\n"
+                "All stats updated in real-time."
+            )
+            await context.bot.send_message(chat_id=chat_id, text=report, parse_mode=ParseMode.MARKDOWN)
+
+        elif data == "admin_broadcast_apk":
+            active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
+            if not active_apk:
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ Cannot broadcast: No active APK file set!")
+                return
+
+            # Trigger background broadcast
+            from bot.services.broadcast import execute_broadcast
+            
+            # Save broadcast job
+            broadcast_job = Broadcast(
+                message_type="apk",
+                file_id=active_apk.file_id,
+                caption=active_apk.changelog or "New APK Update is live! 🚀",
+                has_apk_button=True,
+                apk_button_text="⬇️ Download App",
+                status="pending"
+            )
+            session.add(broadcast_job)
+            session.commit()
+            
+            # Run asynchronously in background thread
+            import threading
+            def run_bg():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(execute_broadcast(broadcast_job.id, context.bot.token))
+                except Exception as thread_err:
+                    logger.error(f"Telegram thread broadcast error: {thread_err}")
+                finally:
+                    loop.close()
+
+            threading.Thread(target=run_bg, daemon=True).start()
+            await query.edit_message_text("📲 *APK Broadcast started in the background!* Users will receive it shortly.")
+
+        elif data == "admin_prompt_broadcast_media":
+            context.user_data["awaiting_broadcast_content"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="📢 *Please send the broadcast content now.*\n\nIt can be a *Text*, *Voice Note*, *Image*, *Video*, *Audio*, or *Document/APK*.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data in ("admin_confirm_bc_yes_apk", "admin_confirm_bc_no_apk"):
+            has_apk = (data == "admin_confirm_bc_yes_apk")
+            bc_type = context.user_data.pop("broadcast_type", "text")
+            bc_file_id = context.user_data.pop("broadcast_file_id", None)
+            bc_caption = context.user_data.pop("broadcast_caption", None)
+            bc_text = context.user_data.pop("broadcast_text", None)
+
+            # Build and commit broadcast database record
+            new_bc = Broadcast(
+                message_type=bc_type,
+                file_id=bc_file_id,
+                caption=bc_caption,
+                content_text=bc_text,
+                has_apk_button=has_apk,
+                apk_button_text="⬇&nbsp;Download App",
+                status="pending"
+            )
+            session.add(new_bc)
+            session.commit()
+            bc_id = new_bc.id
+
+            # Trigger background sending thread
+            from bot.services.broadcast import execute_broadcast
+            import threading
+            
+            def run_custom_bg():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(execute_broadcast(bc_id, context.bot.token))
+                except Exception as thread_err:
+                    logger.error(f"Telegram thread broadcast error: {thread_err}")
+                finally:
+                    loop.close()
+
+            threading.Thread(target=run_custom_bg, daemon=True).start()
+            await query.edit_message_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
+
+        elif data == "admin_cancel":
+            context.user_data.clear()
+            await query.edit_message_text("❌ Operations cancelled.")
+
     except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+        session.rollback()
+        logger.error(f"Callback admin error: {e}", exc_info=True)
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
     finally:
         session.close()
