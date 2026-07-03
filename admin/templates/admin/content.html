@@ -1,0 +1,95 @@
+{% extends "admin/base.html" %}
+{% block title %}Content Manager — NexusBot Admin{% endblock %}
+{% block page_title %}Content Manager{% endblock %}
+{% block breadcrumb %}Content{% endblock %}
+
+{% block topbar_actions %}
+<a href="/admin/content/add" class="btn btn-primary btn-sm">➕ Add Content</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">📦 All Content Items</div>
+    {% if contents %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Type</th>
+                    <th>Details</th>
+                    <th>Version</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in contents %}
+            <tr>
+                <td style="color:var(--text3);">{{ item.order_index }}</td>
+                <td>
+                    {% if item.content_type == 'text' %}<span class="badge badge-info">📝 Text</span>
+                    {% elif item.content_type == 'image' %}<span class="badge badge-success">🖼️ Image</span>
+                    {% elif item.content_type == 'video' %}<span class="badge badge-purple">🎬 Video</span>
+                    {% elif item.content_type == 'voice' %}<span class="badge badge-warning">🎵 Voice</span>
+                    {% elif item.content_type == 'audio' %}<span class="badge badge-warning">🎤 Audio</span>
+                    {% elif item.content_type == 'apk' %}<span class="badge badge-danger">📱 APK</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="max-width:300px;">
+                        {% if item.text_content %}
+                        <div style="font-size:12px; color:var(--text2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            {{ item.text_content[:80] }}{% if item.text_content|length > 80 %}...{% endif %}
+                        </div>
+                        {% elif item.file_name %}
+                        <div style="font-size:13px; font-weight:500;">{{ item.file_name }}</div>
+                        {% endif %}
+                        {% if item.caption %}
+                        <div style="font-size:11px; color:var(--text3); margin-top:2px;">
+                            {{ item.caption[:60] }}{% if item.caption|length > 60 %}...{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if item.version %}
+                    <span class="badge badge-purple">v{{ item.version }}</span>
+                    {% else %}—{% endif %}
+                </td>
+                <td>
+                    {% if item.is_active %}
+                    <span class="badge badge-success">Active</span>
+                    {% else %}
+                    <span class="badge badge-danger">Hidden</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="flex gap-2">
+                        <a href="/admin/content/edit/{{ item.id }}" class="btn btn-outline btn-sm">✏️</a>
+                        <form method="POST" action="/admin/content/toggle/{{ item.id }}" style="display:inline;">
+                            <button class="btn btn-warning btn-sm" title="Toggle visibility">
+                                {% if item.is_active %}👁️{% else %}🙈{% endif %}
+                            </button>
+                        </form>
+                        <form method="POST" action="/admin/content/delete/{{ item.id }}" style="display:inline;"
+                            onsubmit="return confirm('Delete this content permanently?')">
+                            <button class="btn btn-danger btn-sm">🗑️</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="text-align:center; padding:60px; color:var(--text3);">
+        📭 No content added yet.<br>
+        <a href="/admin/content/add" style="color:#a78bfa; margin-top:8px; display:inline-block;">
+            ➕ Add your first content item
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

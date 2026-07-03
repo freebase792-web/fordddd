@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block title %}Questions — NexusBot Admin{% endblock %}
+{% block page_title %}Questions{% endblock %}
+{% block breadcrumb %}Questions{% endblock %}
+
+{% block topbar_actions %}
+<a href="/admin/questions/add" class="btn btn-primary btn-sm">➕ Add Question</a>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-4" style="background:rgba(124,58,237,0.05); border-color:rgba(124,58,237,0.2);">
+    <div style="font-size:13px; color:var(--text2);">
+        💡 <strong>How questions work:</strong> The first active question (lowest order) is shown to users after they tap "Let's Go!". Set up your Yes/No question, button labels, and response messages here.
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">❓ All Questions</div>
+    {% if questions %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Question</th>
+                    <th>Buttons</th>
+                    <th>Active</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for q in questions %}
+            <tr>
+                <td style="color:var(--text3);">{{ q.order_index }}</td>
+                <td style="max-width:300px;">
+                    <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        {{ q.question_text[:80] }}{% if q.question_text|length > 80 %}...{% endif %}
+                    </div>
+                </td>
+                <td>
+                    <div style="font-size:11px; display:flex; flex-direction:column; gap:4px;">
+                        <span class="badge badge-success">{{ q.yes_label }}</span>
+                        <span class="badge badge-danger">{{ q.no_label }}</span>
+                    </div>
+                </td>
+                <td>
+                    {% if q.is_active %}
+                    <span class="badge badge-success">✅ Active</span>
+                    {% else %}
+                    <span class="badge badge-danger">Hidden</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="flex gap-2">
+                        <a href="/admin/questions/edit/{{ q.id }}" class="btn btn-outline btn-sm">✏️ Edit</a>
+                        <form method="POST" action="/admin/questions/delete/{{ q.id }}" style="display:inline;"
+                            onsubmit="return confirm('Delete this question?')">
+                            <button class="btn btn-danger btn-sm">🗑️</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="text-align:center; padding:60px; color:var(--text3);">
+        ❓ No questions yet.<br>
+        <a href="/admin/questions/add" style="color:#a78bfa; margin-top:8px; display:inline-block;">
+            ➕ Create your first question
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

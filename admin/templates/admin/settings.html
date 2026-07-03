@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block title %}Settings — NexusBot Admin{% endblock %}
+{% block page_title %}Bot Settings{% endblock %}
+{% block breadcrumb %}Settings{% endblock %}
+
+{% block content %}
+<div style="max-width:700px;">
+<div class="card">
+    <div class="card-header">⚙️ Bot Configuration</div>
+    <form method="POST">
+        <div class="form-group">
+            <label class="form-label">WELCOME MESSAGE</label>
+            <textarea name="welcome_text" class="form-control" rows="5">{{ configs.welcome_text }}</textarea>
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+                Supports Markdown: *bold*, _italic_, `code`
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">WELCOME GIF / STICKER FILE ID (optional)</label>
+            <input type="text" name="welcome_gif_id" class="form-control"
+                value="{{ configs.welcome_gif_id }}"
+                placeholder="Telegram file_id for an animation/sticker">
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+                Leave blank to show text-only welcome. Send a GIF to your bot → @userinfobot → copy file_id
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">YES INTRO TEXT (shown before content delivery)</label>
+            <textarea name="yes_intro_text" class="form-control" rows="3">{{ configs.yes_intro_text }}</textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">NO RESPONSE TEXT</label>
+            <textarea name="no_response_text" class="form-control" rows="3">{{ configs.no_response_text }}</textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">MAINTENANCE MESSAGE</label>
+            <textarea name="maintenance_message" class="form-control" rows="3">{{ configs.maintenance_message }}</textarea>
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+                Shown to users when bot is in maintenance mode (toggle from Dashboard)
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">APK DOWNLOAD BUTTON TEXT</label>
+            <input type="text" name="apk_button_text" class="form-control"
+                value="{{ configs.apk_button_text }}"
+                placeholder="⬇️ Download App">
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Save All Settings</button>
+    </form>
+</div>
+</div>
+{% endblock %}

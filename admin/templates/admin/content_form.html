@@ -1,0 +1,124 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ action }} Content — NexusBot Admin{% endblock %}
+{% block page_title %}{{ action }} Content{% endblock %}
+{% block breadcrumb %}Content › {{ action }}{% endblock %}
+
+{% block extra_styles %}
+<style>
+.type-section { display: none; }
+.type-section.active { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:700px;">
+<div class="card">
+    <div class="card-header">{{ '✏️ Edit' if action == 'Edit' else '➕ Add' }} Content Item</div>
+    <form method="POST">
+        <div class="form-group">
+            <label class="form-label">CONTENT TYPE *</label>
+            <select name="content_type" class="form-control" id="typeSelect" required>
+                <option value="">— Select type —</option>
+                <option value="text" {% if content and content.content_type == 'text' %}selected{% endif %}>📝 Text</option>
+                <option value="image" {% if content and content.content_type == 'image' %}selected{% endif %}>🖼️ Image</option>
+                <option value="video" {% if content and content.content_type == 'video' %}selected{% endif %}>🎬 Video</option>
+                <option value="voice" {% if content and content.content_type == 'voice' %}selected{% endif %}>🎵 Voice Note</option>
+                <option value="audio" {% if content and content.content_type == 'audio' %}selected{% endif %}>🎤 Audio</option>
+                <option value="apk" {% if content and content.content_type == 'apk' %}selected{% endif %}>📱 APK</option>
+            </select>
+        </div>
+
+        <!-- Text fields -->
+        <div class="type-section" id="section-text">
+            <div class="form-group">
+                <label class="form-label">TEXT CONTENT (Markdown)</label>
+                <textarea name="text_content" class="form-control" rows="8"
+                    placeholder="*Bold*, _italic_, `code`&#10;&#10;Your content here...">{{ content.text_content or '' if content else '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- File ID (for all media types) -->
+        <div class="type-section" id="section-file">
+            <div class="form-group">
+                <label class="form-label">TELEGRAM FILE ID *</label>
+                <input type="text" name="file_id" class="form-control"
+                    value="{{ content.file_id or '' if content else '' }}"
+                    placeholder="BQACAgIAAxkBAAIB...">
+                <div style="margin-top:6px; font-size:11px; color:var(--text3);">
+                    Send media to your bot → Forward to @userinfobot → Copy file_id
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">FILE NAME</label>
+                <input type="text" name="file_name" class="form-control"
+                    value="{{ content.file_name or '' if content else '' }}"
+                    placeholder="filename.ext">
+            </div>
+            <div class="type-section" id="section-caption">
+                <div class="form-group">
+                    <label class="form-label">CAPTION</label>
+                    <textarea name="caption" class="form-control" rows="3"
+                        placeholder="Caption shown below the media">{{ content.caption or '' if content else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- APK fields -->
+        <div class="type-section" id="section-apk">
+            <div class="grid-2" style="gap:12px;">
+                <div class="form-group">
+                    <label class="form-label">VERSION</label>
+                    <input type="text" name="version" class="form-control"
+                        value="{{ content.version or '' if content else '1.0' }}"
+                        placeholder="1.0.0">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">CHANGELOG / WHAT'S NEW</label>
+                <textarea name="changelog" class="form-control" rows="4"
+                    placeholder="- Bug fixes&#10;- New features">{{ content.changelog or '' if content else '' }}</textarea>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">DISPLAY ORDER</label>
+            <input type="number" name="order_index" class="form-control"
+                value="{{ content.order_index if content else 0 }}" min="0">
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+                Lower numbers appear first. Content is delivered in order.
+            </div>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:8px;">
+            <button type="submit" class="btn btn-primary">
+                {{ '💾 Save Changes' if action == 'Edit' else '✅ Add Content' }}
+            </button>
+            <a href="/admin/content" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const typeSelect = document.getElementById('typeSelect');
+function updateSections() {
+    const type = typeSelect.value;
+    document.querySelectorAll('.type-section').forEach(s => s.classList.remove('active'));
+    if (type === 'text') {
+        document.getElementById('section-text').classList.add('active');
+    } else {
+        document.getElementById('section-file').classList.add('active');
+        if (type !== 'voice') {
+            document.getElementById('section-caption').classList.add('active');
+        }
+        if (type === 'apk') {
+            document.getElementById('section-apk').classList.add('active');
+        }
+    }
+}
+typeSelect.addEventListener('change', updateSections);
+updateSections(); // Run on load for edit mode
+</script>
+{% endblock %}

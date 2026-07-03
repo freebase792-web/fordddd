@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ action }} Question — NexusBot Admin{% endblock %}
+{% block page_title %}{{ action }} Question{% endblock %}
+{% block breadcrumb %}Questions › {{ action }}{% endblock %}
+
+{% block content %}
+<div style="max-width:700px;">
+<div class="card">
+    <div class="card-header">{{ '✏️ Edit' if action == 'Edit' else '➕ Add' }} Question</div>
+    <form method="POST">
+        <div class="form-group">
+            <label class="form-label">QUESTION TEXT *</label>
+            <textarea name="question_text" class="form-control" rows="3" required
+                placeholder="e.g. Are you interested in exclusive gaming content?">{{ question.question_text if question else '' }}</textarea>
+        </div>
+        <div class="grid-2" style="gap:12px;">
+            <div class="form-group">
+                <label class="form-label">YES BUTTON LABEL</label>
+                <input type="text" name="yes_label" class="form-control"
+                    value="{{ question.yes_label if question else '✅ Yes, I\'m in!' }}"
+                    placeholder="✅ Yes, I'm in!">
+            </div>
+            <div class="form-group">
+                <label class="form-label">NO BUTTON LABEL</label>
+                <input type="text" name="no_label" class="form-control"
+                    value="{{ question.no_label if question else '❌ Not now' }}"
+                    placeholder="❌ Not now">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">NO RESPONSE MESSAGE (optional)</label>
+            <textarea name="no_response" class="form-control" rows="3"
+                placeholder="Message shown when user answers NO...">{{ question.no_response or '' if question else '' }}</textarea>
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+                Leave blank to use global setting from Settings page
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">DISPLAY ORDER</label>
+            <input type="number" name="order_index" class="form-control"
+                value="{{ question.order_index if question else 0 }}" min="0">
+        </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input type="checkbox" name="is_active" id="is_active"
+                    {% if not question or question.is_active %}checked{% endif %}>
+                <label for="is_active" style="font-size:13px; color:var(--text); cursor:pointer;">
+                    Active (shown to users)
+                </label>
+            </div>
+        </div>
+        <div style="display:flex; gap:12px; margin-top:8px;">
+            <button type="submit" class="btn btn-primary">
+                {{ '💾 Save Changes' if action == 'Edit' else '✅ Add Question' }}
+            </button>
+            <a href="/admin/questions" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+</div>
+{% endblock %}

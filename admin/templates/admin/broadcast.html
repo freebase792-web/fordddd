@@ -1,0 +1,237 @@
+{% extends "admin/base.html" %}
+{% block title %}Broadcast — NexusBot Admin{% endblock %}
+{% block page_title %}Broadcast Center{% endblock %}
+{% block breadcrumb %}Broadcast{% endblock %}
+
+{% block topbar_actions %}
+    <span style="color:var(--text2); font-size:13px;">
+        👥 <strong style="color:var(--text);">{{ user_count }}</strong> users will receive this
+    </span>
+{% endblock %}
+
+{% block extra_styles %}
+<style>
+.media-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+.type-card {
+    padding: 16px; border-radius: 12px; border: 2px solid var(--border);
+    text-align: center; cursor: pointer; transition: all 0.2s;
+    background: var(--bg3);
+}
+.type-card:hover { border-color: var(--accent); }
+.type-card.selected { border-color: var(--accent); background: var(--accent-glow); }
+.type-card .icon { font-size: 24px; display: block; margin-bottom: 6px; }
+.type-card .name { font-size: 12px; font-weight: 600; color: var(--text2); }
+.section-hidden { display: none; }
+.broadcast-row { display: flex; flex-direction: column; gap: 4px; }
+.progress-wrap { padding: 12px; background: var(--bg3); border-radius: 10px; margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="grid-2" style="gap:24px; align-items:start;">
+    <!-- Compose Broadcast -->
+    <div class="card">
+        <div class="card-header">📢 Compose Broadcast</div>
+        <form method="POST" action="/admin/broadcast/send" id="broadcastForm">
+            <!-- Message Type Selector -->
+            <div class="form-group">
+                <div class="form-label">MESSAGE TYPE</div>
+                <div class="media-type-grid">
+                    <div class="type-card selected" data-type="text" onclick="selectType('text')">
+                        <span class="icon">📝</span>
+                        <span class="name">Text</span>
+                    </div>
+                    <div class="type-card" data-type="voice" onclick="selectType('voice')">
+                        <span class="icon">🎵</span>
+                        <span class="name">Voice Note</span>
+                    </div>
+                    <div class="type-card" data-type="image" onclick="selectType('image')">
+                        <span class="icon">🖼️</span>
+                        <span class="name">Image</span>
+                    </div>
+                    <div class="type-card" data-type="video" onclick="selectType('video')">
+                        <span class="icon">🎬</span>
+                        <span class="name">Video</span>
+                    </div>
+                    <div class="type-card" data-type="audio" onclick="selectType('audio')">
+                        <span class="icon">🎤</span>
+                        <span class="name">Audio</span>
+                    </div>
+                    <div class="type-card" data-type="apk" onclick="selectType('apk')">
+                        <span class="icon">📱</span>
+                        <span class="name">APK/File</span>
+                    </div>
+                </div>
+                <input type="hidden" name="message_type" id="message_type" value="text">
+            </div>
+
+            <!-- Text message area -->
+            <div class="form-group" id="section-text">
+                <label class="form-label">MESSAGE TEXT (Markdown supported)</label>
+                <textarea name="content_text" class="form-control" rows="6"
+                    placeholder="*Bold*, _italic_, `code`&#10;&#10;Write your message here..."></textarea>
+            </div>
+
+            <!-- File ID for media -->
+            <div class="form-group section-hidden" id="section-file">
+                <label class="form-label">TELEGRAM FILE ID</label>
+                <input type="text" name="file_id" class="form-control"
+                    placeholder="Forward the media to your bot and copy the file_id">
+                <div style="margin-top:6px; font-size:11px; color:var(--text3);">
+                    💡 Forward your media to @userinfobot or check the instructions below to get the file_id
+                </div>
+            </div>
+
+            <!-- Caption for media -->
+            <div class="form-group section-hidden" id="section-caption">
+                <label class="form-label">CAPTION (optional)</label>
+                <textarea name="caption" class="form-control" rows="3"
+                    placeholder="Optional caption for the media..."></textarea>
+            </div>
+
+            <!-- APK Download Button Option -->
+            <div class="form-group" style="padding:14px; background:var(--bg3); border-radius:12px; border:1px solid var(--border);">
+                <div class="form-check">
+                    <input type="checkbox" name="has_apk_button" id="has_apk_button">
+                    <label for="has_apk_button" style="font-size:13px; color:var(--text); cursor:pointer;">
+                        📱 Attach APK Download Button
+                    </label>
+                </div>
+                <div style="margin-top:10px;" id="apk-btn-section" class="section-hidden">
+                    <input type="text" name="apk_button_text" class="form-control"
+                        value="⬇️ Download App"
+                        placeholder="Button text">
+                    {% if active_apk %}
+                    <div style="margin-top:6px; font-size:11px; color:#6ee7b7;">
+                        ✅ Will link to: <strong>{{ active_apk.file_name }}</strong> v{{ active_apk.version }}
+                    </div>
+                    {% else %}
+                    <div style="margin-top:6px; font-size:11px; color:#fca5a5;">
+                        ⚠️ No active APK found. <a href="/admin/apk" style="color:#f59e0b;">Upload one first</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button type="submit" class="btn btn-primary" style="width:100%;"
+                    onclick="return confirm('Send to {{ user_count }} users?')">
+                    🚀 Send Broadcast Now
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Broadcast History -->
+    <div>
+        <div class="card">
+            <div class="card-header">📊 Broadcast History</div>
+            {% if broadcasts %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Type</th>
+                            <th>Progress</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for b in broadcasts %}
+                    <tr>
+                        <td style="color:var(--text3);">#{{ b.id }}</td>
+                        <td>
+                            {% if b.message_type == 'text' %}📝
+                            {% elif b.message_type == 'image' %}🖼️
+                            {% elif b.message_type == 'video' %}🎬
+                            {% elif b.message_type == 'voice' %}🎵
+                            {% elif b.message_type == 'audio' %}🎤
+                            {% elif b.message_type in ('apk','document') %}📱
+                            {% endif %}
+                            {{ b.message_type | title }}
+                        </td>
+                        <td style="min-width:120px;">
+                            <div class="broadcast-row">
+                                {% set pct = ((b.sent_count / b.total_users * 100) | round(0) | int) if b.total_users else 0 %}
+                                <div class="progress">
+                                    <div class="progress-bar" style="width:{{ pct }}%"></div>
+                                </div>
+                                <span style="font-size:11px; color:var(--text3);">
+                                    {{ b.sent_count }}/{{ b.total_users }}
+                                    {% if b.failed_count %} · ❌{{ b.failed_count }}{% endif %}
+                                </span>
+                            </div>
+                        </td>
+                        <td>
+                            {% if b.status == 'done' %}<span class="badge badge-success">✅ Done</span>
+                            {% elif b.status == 'sending' %}<span class="badge badge-info" data-broadcast-id="{{ b.id }}">⏳ Sending</span>
+                            {% elif b.status == 'failed' %}<span class="badge badge-danger">❌ Failed</span>
+                            {% else %}<span class="badge badge-warning">🕐 Queued</span>{% endif %}
+                        </td>
+                        <td style="color:var(--text3); font-size:11px; white-space:nowrap;">
+                            {{ b.created_at.strftime('%b %d, %H:%M') if b.created_at else '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div style="text-align:center; padding:40px; color:var(--text3);">
+                📭 No broadcasts sent yet
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">💡 How to Get File IDs</div>
+            <div style="font-size:13px; color:var(--text2); line-height:1.8;">
+                <p>1. 📤 Send your media (voice/video/image/APK) to your bot in Telegram</p>
+                <p>2. 🤖 Forward that message to <strong>@userinfobot</strong></p>
+                <p>3. 📋 Copy the <strong>file_id</strong> from the response</p>
+                <p>4. 📝 Paste it in the <strong>Telegram File ID</strong> field above</p>
+                <br>
+                <p style="color:var(--text3); font-size:11px;">
+                    Voice notes: Record in Telegram → Send to bot → Forward to @userinfobot
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function selectType(type) {
+    document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+    document.querySelector(`[data-type="${type}"]`).classList.add('selected');
+    document.getElementById('message_type').value = type;
+
+    // Show/hide sections
+    document.getElementById('section-text').classList.toggle('section-hidden', type !== 'text');
+    document.getElementById('section-file').classList.toggle('section-hidden', type === 'text');
+    document.getElementById('section-caption').classList.toggle('section-hidden', type === 'text' || type === 'voice');
+}
+
+document.getElementById('has_apk_button').addEventListener('change', function() {
+    document.getElementById('apk-btn-section').classList.toggle('section-hidden', !this.checked);
+});
+
+// Live progress polling for sending broadcasts
+function pollProgress() {
+    document.querySelectorAll('[data-broadcast-id]').forEach(el => {
+        const id = el.dataset.broadcastId;
+        fetch(`/admin/broadcast/status/${id}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'done' || data.status === 'failed') {
+                    setTimeout(() => location.reload(), 1000);
+                }
+            }).catch(() => {});
+    });
+}
+setInterval(pollProgress, 3000);
+</script>
+{% endblock %}

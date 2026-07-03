@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+{% block title %}Users — NexusBot Admin{% endblock %}
+{% block page_title %}User Manager{% endblock %}
+{% block breadcrumb %}Users{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="flex-between mb-4">
+        <div class="card-header" style="margin:0;">👥 Users ({{ total }})</div>
+        <form method="GET" style="display:flex; gap:8px;">
+            <input type="text" name="search" class="form-control" value="{{ search }}"
+                placeholder="Search username or name..." style="width:260px;">
+            <button type="submit" class="btn btn-outline btn-sm">🔍 Search</button>
+            {% if search %}<a href="/admin/users" class="btn btn-outline btn-sm">✕ Clear</a>{% endif %}
+        </form>
+    </div>
+    {% if users %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>XP / Level</th>
+                    <th>Streak</th>
+                    <th>Referrals</th>
+                    <th>Answer</th>
+                    <th>Joined</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td>
+                    <div>
+                        <div style="font-weight:600; font-size:13px;">{{ u.first_name or '—' }} {{ u.last_name or '' }}</div>
+                        <div style="color:var(--text3); font-size:11px;">
+                            {% if u.username %}@{{ u.username }}{% endif %}
+                            · {{ u.id }}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div style="font-size:13px; font-weight:600; color:#a78bfa;">{{ u.xp_points }} XP</div>
+                </td>
+                <td>
+                    <span class="badge badge-warning">🔥 {{ u.streak_count }}d</span>
+                </td>
+                <td>
+                    <span style="font-size:13px;">👥 {{ u.referral_count }}</span>
+                </td>
+                <td>
+                    {% if u.answer_yes == True %}<span class="badge badge-success">✅ YES</span>
+                    {% elif u.answer_yes == False %}<span class="badge badge-danger">❌ NO</span>
+                    {% else %}<span class="badge" style="color:var(--text3);">—</span>{% endif %}
+                </td>
+                <td style="color:var(--text3); font-size:11px; white-space:nowrap;">
+                    {{ u.joined_at.strftime('%b %d, %Y') if u.joined_at else '—' }}
+                </td>
+                <td>
+                    {% if u.is_banned %}
+                    <span class="badge badge-danger">🚫 Banned</span>
+                    {% else %}
+                    <span class="badge badge-success">✅ Active</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="POST" action="/admin/users/ban/{{ u.id }}" style="display:inline;">
+                        <button class="btn btn-sm {{ 'btn-success' if u.is_banned else 'btn-danger' }}">
+                            {{ '✅ Unban' if u.is_banned else '🚫 Ban' }}
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <!-- Pagination -->
+    {% if pages > 1 %}
+    <div style="display:flex; gap:8px; margin-top:16px; justify-content:center;">
+        {% for p in range(1, pages+1) %}
+        <a href="/admin/users?page={{ p }}{% if search %}&search={{ search }}{% endif %}"
+            class="btn btn-sm {{ 'btn-primary' if p == page else 'btn-outline' }}">
+            {{ p }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="text-align:center; padding:60px; color:var(--text3);">
+        👤 No users found{% if search %} for "{{ search }}"{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
