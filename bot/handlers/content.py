@@ -120,11 +120,14 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Show action buttons (APK download + extras)
         apk_version = active_apk.version if active_apk else None
         apk_button_text = get_config("apk_button_text", "⬇️ Download App")
-        closing_msg = (
-            f"✨ *There you go, {user.get_display_name()}!*\n\n"
-            f"You finally got what you wanted. 😉\n"
-            f"Don't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫"
+        # Dynamically load the admin-configured demo closing message from database config
+        demo_tpl = get_config(
+            "demo_closing_text",
+            "✨ *There you go, {name}!*\n\n"
+            "You finally got what you wanted. 😉\n"
+            "Don't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫"
         )
+        closing_msg = demo_tpl.replace("{name}", user.get_display_name())
 
         msg = await context.bot.send_message(
             chat_id=chat_id,

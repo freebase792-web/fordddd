@@ -97,6 +97,32 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    # Check if we are compiling a multi-media demo sequence
+    demo_list = context.user_data.get("awaiting_demo_media_list")
+    if demo_list is not None:
+        demo_list.append({
+            "content_type": content_type,
+            "file_id": file_id,
+            "caption": message.caption or "",
+            "text_content": ""
+        })
+        context.user_data["awaiting_demo_media_list"] = demo_list
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Save Demo", callback_data="admin_confirm_demo_media_done")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+        ])
+
+        await message.reply_text(
+            f"🌸 *Added to Demo sequence!*\n\n"
+            f"• Type: `{content_type}`\n"
+            f"• Total Items: *{len(demo_list)}*\n\n"
+            f"Send more text or media to add, or tap **Save Demo** to confirm.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard
+        )
+        return
+
     # Check if we are compiling a multi-media broadcast list
     media_list = context.user_data.get("awaiting_broadcast_media_list")
     if media_list is not None:
@@ -286,6 +312,32 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = Session()
 
     try:
+        # Check if we are compiling a multi-media demo sequence
+        demo_list = context.user_data.get("awaiting_demo_media_list")
+        if demo_list is not None:
+            demo_list.append({
+                "content_type": "text",
+                "file_id": None,
+                "caption": "",
+                "text_content": text
+            })
+            context.user_data["awaiting_demo_media_list"] = demo_list
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Save Demo", callback_data="admin_confirm_demo_media_done")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            ])
+
+            await message.reply_text(
+                f"✍️ *Text added to Demo sequence!*\n\n"
+                f"• Preview: _{text[:60]}..._\n"
+                f"• Total Items: *{len(demo_list)}*\n\n"
+                f"Send more text or media to add, or tap **Save Demo** to confirm.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+            return
+
         # Check if we are compiling a multi-media broadcast list
         media_list = context.user_data.get("awaiting_broadcast_media_list")
         if media_list is not None:
@@ -456,6 +508,13 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await message.reply_text(f"✅ NO button option label updated to: `{text}`")
             return
 
+        # 8. Handling demo closing message update
+        if context.user_data.get("awaiting_demo_msg"):
+            context.user_data.pop("awaiting_demo_msg")
+            set_config("demo_closing_text", text)
+            await message.reply_text(f"✅ Demo closing message updated successfully to:\n\n{text}", parse_mode=ParseMode.MARKDOWN)
+            return
+
     except Exception as e:
         session.rollback()
         logger.error(f"Admin text config error: {e}", exc_info=True)
@@ -567,10 +626,54 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
 
         elif data == "admin_prompt_demo":
-            context.user_data["awaiting_demo_file"] = True
+            context.user_data["awaiting_demo_media_list"] = []
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="🌸 *Please send a new video, image, or voice note to set it as the user demo content:*",
+                text=(
+                    "🌸 *Multi-Media Demo Builder active!* 🌸\n\n"
+                    "Send me any files (videos, photos, voice notes, audio, text) one-by-one to build the demo sequence.\n\n"
+                    "Tap **✅ Save Demo** when you've sent all files to complete setup."
+                ),
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Save Demo", callback_data="admin_confirm_demo_media_done")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+                ])
+            )
+
+        elif data == "admin_confirm_demo_media_done":
+            demo_list = context.user_data.pop("awaiting_demo_media_list", None)
+            if not demo_list:
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ No items added to demo sequence. Cancelled.")
+                return
+
+            # Archive existing demo items
+            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
+            
+            # Save new demo items
+            for idx, item in enumerate(demo_list):
+                new_demo = Content(
+                    content_type=item["content_type"],
+                    file_id=item["file_id"],
+                    file_name="demo_file",
+                    caption=item["caption"],
+                    text_content=item["text_content"],
+                    is_active=True,
+                    order_index=idx + 1,
+                )
+                session.add(new_demo)
+            session.commit()
+            
+            await query.edit_message_text(f"🌸 *Demo sequence successfully updated with {len(demo_list)} items!*")
+
+        elif data == "admin_prompt_demo_msg":
+            context.user_data["awaiting_demo_msg"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "✏️ *Please reply with the text to be shown AFTER the demo content delivery:*\n\n"
+                    "💡 Use `{name}` in your text to dynamically replace it with the user's name (e.g. `✨ Enjoy the game, {name}!`)."
+                ),
                 parse_mode=ParseMode.MARKDOWN
             )
 

@@ -98,7 +98,8 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> Inlin
         ],
         [
             InlineKeyboardButton("📝 Welcome 📝", callback_data="admin_prompt_welcome"),
-            InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo")
+            InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo"),
+            InlineKeyboardButton("💬 Demo Msg 💬", callback_data="admin_prompt_demo_msg")
         ],
         [
             InlineKeyboardButton("🖼️ Set App Icon 🖼️", callback_data="admin_prompt_app_icon"),
