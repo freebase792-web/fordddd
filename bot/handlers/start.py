@@ -12,7 +12,7 @@ from bot.models.database import Session, User, Analytics, get_config
 from bot.utils.keyboards import start_keyboard, user_reply_keyboard
 from bot.utils.helpers import (
     generate_referral_code, update_streak, format_streak_message,
-    calculate_xp_for_event
+    calculate_xp_for_event, clear_previous_messages, track_message
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # --- USER FLOW ---
+        # Clear all previous bot messages to keep the chat clean
+        await clear_previous_messages(chat_id, context)
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
         user = session.get(User, user_tg.id)
         is_new = user is None
 

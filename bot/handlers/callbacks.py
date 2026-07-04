@@ -13,7 +13,7 @@ from bot.utils.keyboards import (
     question_keyboard, reconsider_keyboard, stats_keyboard
 )
 from bot.utils.helpers import (
-    format_streak_message, format_xp_level, calculate_xp_for_event
+    format_streak_message, format_xp_level, calculate_xp_for_event, track_message
 )
 from bot.handlers.content import deliver_content, send_apk_to_user
 
@@ -79,12 +79,13 @@ async def _show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"_{question.question_text}_"
         )
 
-        await context.bot.send_message(
+        msg = await context.bot.send_message(
             chat_id=chat_id,
             text=question_msg,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=question_keyboard(question.yes_label, question.no_label),
         )
+        track_message(context, msg)
 
     except Exception as e:
         logger.error(f"Error in _show_question: {e}", exc_info=True)
@@ -118,7 +119,7 @@ async def _handle_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
 
     # Show exciting transition message
-    await context.bot.send_message(
+    msg = await context.bot.send_message(
         chat_id=chat_id,
         text=(
             "I knew you couldn't resist... 😏\n\n"
@@ -126,6 +127,7 @@ async def _handle_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         parse_mode=ParseMode.MARKDOWN,
     )
+    track_message(context, msg)
 
     # Deliver all content
     await deliver_content(update, context)
@@ -161,12 +163,13 @@ async def _handle_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "😢 No worries! Whenever you change your mind,\njust tap below and we'll be here. 🌟"
     )
 
-    await context.bot.send_message(
+    msg = await context.bot.send_message(
         chat_id=chat_id,
         text=no_response,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reconsider_keyboard(),
     )
+    track_message(context, msg)
 
 
 async def _show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):

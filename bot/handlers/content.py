@@ -11,7 +11,7 @@ from telegram.constants import ParseMode
 
 from bot.models.database import Session, User, Content, Analytics, get_config
 from bot.utils.keyboards import content_keyboard, back_to_content_keyboard, user_reply_keyboard
-from bot.utils.helpers import calculate_xp_for_event, format_xp_level
+from bot.utils.helpers import calculate_xp_for_event, format_xp_level, track_message
 
 logger = logging.getLogger(__name__)
 
@@ -67,42 +67,47 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             try:
                 if item.content_type == "text":
-                    await context.bot.send_message(
+                    msg = await context.bot.send_message(
                         chat_id=chat_id,
                         text=item.text_content or item.caption or "—",
                         parse_mode=ParseMode.MARKDOWN,
                     )
+                    track_message(context, msg)
 
                 elif item.content_type == "image":
-                    await context.bot.send_photo(
+                    msg = await context.bot.send_photo(
                         chat_id=chat_id,
                         photo=item.file_id,
                         caption=item.caption or "",
                         parse_mode=ParseMode.MARKDOWN,
                     )
+                    track_message(context, msg)
 
                 elif item.content_type == "video":
-                    await context.bot.send_video(
+                    msg = await context.bot.send_video(
                         chat_id=chat_id,
                         video=item.file_id,
                         caption=item.caption or "",
                         parse_mode=ParseMode.MARKDOWN,
                         supports_streaming=True,
                     )
+                    track_message(context, msg)
 
                 elif item.content_type == "voice":
-                    await context.bot.send_voice(
+                    msg = await context.bot.send_voice(
                         chat_id=chat_id,
                         voice=item.file_id,
                         caption=item.caption or "",
                     )
+                    track_message(context, msg)
 
                 elif item.content_type == "audio":
-                    await context.bot.send_audio(
+                    msg = await context.bot.send_audio(
                         chat_id=chat_id,
                         audio=item.file_id,
                         caption=item.caption or "",
                     )
+                    track_message(context, msg)
 
                 elif item.content_type == "apk":
                     # APK is shown as a button below — skip direct send here
@@ -121,12 +126,13 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Don't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫"
         )
 
-        await context.bot.send_message(
+        msg = await context.bot.send_message(
             chat_id=chat_id,
             text=closing_msg,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=user_reply_keyboard(),
         )
+        track_message(context, msg)
 
     except Exception as e:
         logger.error(f"Error in deliver_content: {e}", exc_info=True)
@@ -150,10 +156,11 @@ async def send_apk_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if not active_apk:
-            await context.bot.send_message(
+            msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text="⚠️ No APK available yet. Check back soon! 🔔",
             )
+            track_message(context, msg)
             return
 
         # Log analytics
@@ -177,25 +184,28 @@ async def send_apk_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         app_icon_id = get_config("apk_icon_file_id", "")
         if app_icon_id:
             try:
-                await context.bot.send_photo(
+                icon_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=app_icon_id,
                     caption="📦 *Preparing app installation...*",
                     parse_mode=ParseMode.MARKDOWN
                 )
+                track_message(context, icon_msg)
             except Exception as icon_err:
                 logger.error(f"Failed to send App Icon: {icon_err}")
 
-        await context.bot.send_document(
+        doc_msg = await context.bot.send_document(
             chat_id=chat_id,
             document=active_apk.file_id,
             caption=caption,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=back_to_content_keyboard(),
         )
+        track_message(context, doc_msg)
 
     except Exception as e:
         logger.error(f"Error in send_apk_to_user: {e}", exc_info=True)
-        await context.bot.send_message(chat_id=chat_id, text="❌ Couldn't send the APK. Please try again.")
+        err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Couldn't send the APK. Please try again.")
+        track_message(context, err_msg)
     finally:
         session.close()

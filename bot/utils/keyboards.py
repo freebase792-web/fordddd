@@ -9,7 +9,7 @@ def user_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([
         [KeyboardButton("📱 Download APK")],
         [KeyboardButton("🌸 See Demo")]
-    ], resize_keyboard=True, persistent=True)
+    ], resize_keyboard=True, is_persistent=True)
 
 
 def start_keyboard() -> InlineKeyboardMarkup:

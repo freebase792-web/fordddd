@@ -96,3 +96,29 @@ def escape_md(text: str) -> str:
     """Escape Markdown V2 special characters."""
     special = r'_*[]()~`>#+-=|{}.!'
     return ''.join(f'\\{c}' if c in special else c for c in text)
+
+
+def track_message(context, message_or_id):
+    """Record a sent message ID in user_data to support screen clearing later."""
+    if not context or not hasattr(context, "user_data") or context.user_data is None:
+        return
+    if "bot_message_ids" not in context.user_data:
+        context.user_data["bot_message_ids"] = []
+    
+    # Get the raw message ID integer
+    msg_id = message_or_id.message_id if hasattr(message_or_id, "message_id") else message_or_id
+    if msg_id not in context.user_data["bot_message_ids"]:
+        context.user_data["bot_message_ids"].append(msg_id)
+
+
+async def clear_previous_messages(chat_id, context):
+    """Delete all recorded bot messages to clean the screen."""
+    if not context or not hasattr(context, "user_data") or context.user_data is None:
+        return
+    msg_ids = context.user_data.get("bot_message_ids", [])
+    for msg_id in list(msg_ids):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
+    context.user_data["bot_message_ids"] = []
