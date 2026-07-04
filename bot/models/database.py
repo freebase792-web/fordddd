@@ -1,6 +1,7 @@
 """
 NexusBot Database Models — Firebase Realtime Database Engine
 Replaces SQLite/SQLAlchemy to provide 100% cloud persistence across Render redeploys and restarts.
+Supports SQLAlchemy binary filter expressions via a custom FieldDescriptor.
 """
 import os
 import json
@@ -48,7 +49,45 @@ def format_date(dt):
     return str(dt)
 
 
+class FieldDescriptor:
+    """Emulates SQLAlchemy class attribute comparison descriptors for python classes."""
+    def __init__(self, name):
+        self.name = name
+
+    def __eq__(self, other):
+        return f"{self.name} == {other}"
+
+    def __ne__(self, other):
+        return f"{self.name} != {other}"
+
+    def asc(self):
+        return self
+
+    def desc(self):
+        return self
+
+    def __str__(self):
+        return self.name
+
+
 class User:
+    id = FieldDescriptor("id")
+    username = FieldDescriptor("username")
+    first_name = FieldDescriptor("first_name")
+    last_name = FieldDescriptor("last_name")
+    language_code = FieldDescriptor("language_code")
+    joined_at = FieldDescriptor("joined_at")
+    last_active = FieldDescriptor("last_active")
+    is_banned = FieldDescriptor("is_banned")
+    referrer_id = FieldDescriptor("referrer_id")
+    referral_code = FieldDescriptor("referral_code")
+    referral_count = FieldDescriptor("referral_count")
+    streak_count = FieldDescriptor("streak_count")
+    streak_last_date = FieldDescriptor("streak_last_date")
+    xp_points = FieldDescriptor("xp_points")
+    question_answered = FieldDescriptor("question_answered")
+    answer_yes = FieldDescriptor("answer_yes")
+
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
         self.username = kwargs.get("username")
@@ -96,6 +135,18 @@ class User:
 
 
 class Content:
+    id = FieldDescriptor("id")
+    content_type = FieldDescriptor("content_type")
+    file_id = FieldDescriptor("file_id")
+    file_name = FieldDescriptor("file_name")
+    version = FieldDescriptor("version")
+    changelog = FieldDescriptor("changelog")
+    caption = FieldDescriptor("caption")
+    text_content = FieldDescriptor("text_content")
+    is_active = FieldDescriptor("is_active")
+    order_index = FieldDescriptor("order_index")
+    created_at = FieldDescriptor("created_at")
+
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
         self.content_type = kwargs.get("content_type")
@@ -124,6 +175,13 @@ class Content:
 
 
 class Question:
+    id = FieldDescriptor("id")
+    question_text = FieldDescriptor("question_text")
+    yes_label = FieldDescriptor("yes_label")
+    no_label = FieldDescriptor("no_label")
+    is_active = FieldDescriptor("is_active")
+    order_index = FieldDescriptor("order_index")
+
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
         self.question_text = kwargs.get("question_text")
@@ -144,6 +202,19 @@ class Question:
 
 
 class Broadcast:
+    id = FieldDescriptor("id")
+    message_type = FieldDescriptor("message_type")
+    file_id = FieldDescriptor("file_id")
+    caption = FieldDescriptor("caption")
+    content_text = FieldDescriptor("content_text")
+    has_apk_button = FieldDescriptor("has_apk_button")
+    apk_button_text = FieldDescriptor("apk_button_text")
+    status = FieldDescriptor("status")
+    sent_count = FieldDescriptor("sent_count")
+    failed_count = FieldDescriptor("failed_count")
+    created_at = FieldDescriptor("created_at")
+    completed_at = FieldDescriptor("completed_at")
+
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
         self.message_type = kwargs.get("message_type")
@@ -176,6 +247,12 @@ class Broadcast:
 
 
 class Analytics:
+    id = FieldDescriptor("id")
+    user_id = FieldDescriptor("user_id")
+    event = FieldDescriptor("event")
+    timestamp = FieldDescriptor("timestamp")
+    metadata_ = FieldDescriptor("metadata_")
+
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
         self.user_id = kwargs.get("user_id")
@@ -194,6 +271,9 @@ class Analytics:
 
 
 class BotConfig:
+    key = FieldDescriptor("key")
+    value = FieldDescriptor("value")
+
     def __init__(self, **kwargs):
         self.key = kwargs.get("key")
         self.value = kwargs.get("value")
@@ -219,9 +299,40 @@ class FirebaseQuery:
     def filter(self, *criterion):
         for c in criterion:
             c_str = str(c)
-            if "content_type !=" in c_str or "content_type <>" in c_str:
+            if "==" in c_str:
+                parts = c_str.split("==")
+                key = parts[0].strip()
+                val_str = parts[1].strip()
+                if val_str == "True":
+                    val = True
+                elif val_str == "False":
+                    val = False
+                elif val_str == "None":
+                    val = None
+                elif val_str.isdigit():
+                    val = int(val_str)
+                else:
+                    val = val_str.strip("'\"")
+                self._filters[key] = val
+            elif "!=" in c_str:
+                parts = c_str.split("!=")
+                key = parts[0].strip()
+                val_str = parts[1].strip()
+                if key == "content_type" and val_str.strip("'\"") == "apk":
+                    self._filters["_not_apk"] = True
+                elif key == "id":
+                    try:
+                        self._filters["_not_id"] = int(val_str)
+                    except ValueError:
+                        self._filters["_not_id"] = val_str.strip("'\"")
+                else:
+                    try:
+                        self._filters[f"_not_{key}"] = int(val_str)
+                    except ValueError:
+                        self._filters[f"_not_{key}"] = val_str.strip("'\"")
+            elif "content_type !=" in c_str or "content_type <>" in c_str:
                 self._filters["_not_apk"] = True
-            elif "is_active = 1" in c_str or "is_active = true" in c_str:
+            elif "is_active = 1" in c_str or "is_active = true" in c_str or "is_active == True" in c_str:
                 self._filters["is_active"] = True
         return self
 
@@ -248,6 +359,13 @@ class FirebaseQuery:
             for fk, fv in self._filters.items():
                 if fk == "_not_apk":
                     if getattr(item, "content_type", None) == "apk":
+                        match = False
+                elif fk == "_not_id":
+                    if getattr(item, "id", None) == fv:
+                        match = False
+                elif fk.startswith("_not_"):
+                    real_key = fk.replace("_not_", "", 1)
+                    if getattr(item, real_key, None) == fv:
                         match = False
                 elif getattr(item, fk, None) != fv:
                     match = False
