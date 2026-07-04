@@ -346,8 +346,16 @@ class FirebaseQuery:
     def _fetch_all(self):
         path = self.model_class.__name__.lower() + "s"
         data = fb_request("GET", path) or {}
+        
+        if isinstance(data, list):
+            items_iterator = [(str(idx), val) for idx, val in enumerate(data) if val is not None]
+        elif isinstance(data, dict):
+            items_iterator = data.items()
+        else:
+            items_iterator = []
+
         results = []
-        for k, v in data.items():
+        for k, v in items_iterator:
             if v:
                 v["id"] = int(k) if k.isdigit() else k
                 obj = self.model_class(**v)
