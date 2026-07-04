@@ -653,8 +653,8 @@ def telegram_webhook(token):
             )
             register_handlers(ptb_app)
 
-            # Restore the user_data state mapping
-            ptb_app.user_data.update(_global_user_data)
+            # Restore the user_data state mapping using the raw internal dict
+            ptb_app._user_data.update(_global_user_data)
 
             # Inject the cached bot user to bypass the get_me() HTTP request
             if _cached_bot_user:
@@ -674,7 +674,7 @@ def telegram_webhook(token):
             finally:
                 # Save the updated user_data mapping back to the global process store
                 _global_user_data.clear()
-                _global_user_data.update(ptb_app.user_data)
+                _global_user_data.update(ptb_app._user_data)
                 
                 # Cleanly shutdown the HTTP client connections for this thread's loop
                 await ptb_app.shutdown()
