@@ -17,8 +17,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///nexusbot.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args = {"check_same_thread": False, "timeout": 30}
+
 engine = create_engine(
     DATABASE_URL,
+    connect_args=connect_args,
     poolclass=NullPool if "postgresql" in DATABASE_URL else None,
     echo=False
 )

@@ -124,27 +124,37 @@ def run_keep_alive():
     import urllib.request
     
     # Wait for the server to spin up fully
-    time.sleep(30)
+    time.sleep(10)
     
     ping_url = f"{WEBHOOK_URL.rstrip('/')}/health"
-    logging.info(f"🟢 Keep-alive service active. Target: {ping_url}")
+    root_url = f"{WEBHOOK_URL.rstrip('/')}/"
+    logging.info(f"🟢 Keep-alive service active. Targets: {ping_url} and {root_url}")
     
     while True:
         try:
+            # 1. Ping /health
             req = urllib.request.Request(
                 ping_url,
                 headers={"User-Agent": "NexusBot-KeepAlive-Daemon"}
             )
             with urllib.request.urlopen(req, timeout=15) as response:
-                if response.getcode() == 200:
-                    logging.info("💓 Keep-alive self-ping successful.")
+                pass
+
+            # 2. Ping / (root) to simulate a real user hitting the landing page
+            root_req = urllib.request.Request(
+                root_url,
+                headers={"User-Agent": "NexusBot-KeepAlive-Daemon"}
+            )
+            with urllib.request.urlopen(root_req, timeout=15) as response:
+                if response.getcode() in (200, 302):
+                    logging.info("💓 Keep-alive self-ping sequence successful.")
                 else:
-                    logging.warning(f"⚠️ Keep-alive ping returned status: {response.getcode()}")
+                    logging.warning(f"⚠️ Keep-alive sequence returned status: {response.getcode()}")
         except Exception as ping_err:
-            logging.warning(f"❌ Keep-alive self-ping failed: {ping_err}")
+            logging.warning(f"❌ Keep-alive self-ping sequence failed: {ping_err}")
         
-        # Sleep for 10 minutes (600 seconds)
-        time.sleep(600)
+        # Sleep for 3 minutes (180 seconds) to aggressively prevent sleeping
+        time.sleep(180)
 
 if WEBHOOK_URL:
     import threading
