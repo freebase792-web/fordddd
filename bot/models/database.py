@@ -474,25 +474,37 @@ def set_config(key: str, value: str):
 
 def init_db():
     """Seed initial defaults in Firebase RTDB if missing."""
-    welcome = get_config("welcome_text", "")
-    if not welcome:
+    # 1. Seed configs only if they don't exist
+    if not get_config("welcome_text"):
         set_config("welcome_text", "Welcome to the Premium Portal! 🚀")
+    if not get_config("yes_intro_text"):
         set_config("yes_intro_text", "🎊 *Amazing! You're in!*\n\nHere's your exclusive content package 👇")
+    if not get_config("no_response_text"):
         set_config("no_response_text", "😢 No worries! Whenever you change your mind,\njust tap /start and we'll be here. 🌟")
+    if not get_config("demo_closing_text"):
         set_config("demo_closing_text", "✨ *There you go, {name}!*\n\nDon't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫")
+    if not get_config("bot_enabled"):
         set_config("bot_enabled", "true")
+    if not get_config("demo_enabled"):
         set_config("demo_enabled", "true")
-        
-        # Seed default onboarding question
-        session = Session()
-        q = Question(
-            id=1,
-            question_text="Are you ready to unlock premium APK downloads?",
-            yes_label="✅ Yes, I'm in!",
-            no_label="❌ Not now",
-            is_active=True,
-            order_index=1
-        )
-        session.add(q)
-        session.commit()
-        logger.info("✅ Firebase RTDB database initialized and seeded successfully.")
+    
+    # 2. Seed onboarding question only if there are NO questions in the database
+    session = Session()
+    try:
+        q_count = session.query(Question).count()
+        if q_count == 0:
+            q = Question(
+                id=1,
+                question_text="Are you ready to unlock premium APK downloads?",
+                yes_label="✅ Yes, I'm in!",
+                no_label="❌ Not now",
+                is_active=True,
+                order_index=1
+            )
+            session.add(q)
+            session.commit()
+            logger.info("✅ Firebase RTDB database initialized and seeded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to seed question: {e}")
+    finally:
+        session.close()
