@@ -443,6 +443,10 @@ class FirebaseSession:
             fb_request("PUT", path, obj.to_dict())
         self.dirty.clear()
 
+    def flush(self):
+        """Intermediate flush emulated by commit."""
+        self.commit()
+
     def rollback(self):
         self.dirty.clear()
 
