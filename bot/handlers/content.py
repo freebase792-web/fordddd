@@ -115,16 +115,11 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Show action buttons (APK download + extras)
         apk_version = active_apk.version if active_apk else None
         apk_button_text = get_config("apk_button_text", "⬇️ Download App")
-        level_info = format_xp_level(user.xp_points)
-
         closing_msg = (
-            f"✨ *You're all set, {user.get_display_name()}!*\n\n"
-            f"🏅 Level: *{level_info['name']}*\n"
-            f"⚡ XP: *{user.xp_points}*\n"
+            f"✨ *There you go, {user.get_display_name()}!*\n\n"
+            f"You finally got what you wanted. 😉\n"
+            f"Don't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫"
         )
-        if level_info['next_at']:
-            closing_msg += f"📈 Next level at *{level_info['next_at']} XP* — *{level_info['next_name']}*\n"
-        closing_msg += "\n👇 Use the buttons below:"
 
         await context.bot.send_message(
             chat_id=chat_id,

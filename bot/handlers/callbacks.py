@@ -120,8 +120,7 @@ async def _handle_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
-            "🎊 *YES! Let's go!*\n\n"
-            "⚡ Loading your exclusive content...\n"
+            "I knew you couldn't resist... 😏\n\n"
             "🔓 Unlocking the vault..."
         ),
         parse_mode=ParseMode.MARKDOWN,
@@ -221,24 +220,13 @@ async def _show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="⚠️ Use /start first!")
             return
 
-        level_info = format_xp_level(user.xp_points)
-        streak_msg = format_streak_message(user.streak_count)
-
         msg = (
-            f"📊 *Your Stats, {user.get_display_name()}!*\n"
+            f"📊 *Our Relationship Status, {user.get_display_name()}!*\n"
             f"{'─' * 25}\n"
-            f"🏅 Level: *{level_info['name']}*\n"
-            f"⚡ XP: *{user.xp_points}*\n"
-        )
-        if level_info['next_at']:
-            remaining = level_info['next_at'] - user.xp_points
-            msg += f"📈 Next Level: *{level_info['next_name']}* (need {remaining} more XP)\n"
-
-        msg += (
-            f"\n{streak_msg}\n"
-            f"🔥 Current Streak: *{user.streak_count} days*\n"
-            f"👥 Referrals: *{user.referral_count}*\n"
-            f"\n💡 _Earn XP by downloading, referring friends & daily visits!_"
+            f"🔥 Attachment Level: *Obsessed* 😏\n"
+            f"🗓️ Daily Visits: *{user.streak_count} days in a row* (don't leave me hanging! 🥺)\n"
+            f"👥 Friends Dragged In: *{user.referral_count}*\n"
+            f"\n💡 _Keep visiting and dragging friends in to show your dedication!_"
         )
 
         await context.bot.send_message(

@@ -140,10 +140,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if is_new:
-            greeting = f"👋 Hey *{name}*, welcome aboard!\n\n"
+            greeting = f"😏 So you are finally attracted to me, *{name}*...\n\n"
         else:
-            streak_msg = format_streak_message(streak)
-            greeting = f"🔥 Welcome back, *{name}*!\n{streak_msg}\n\n"
+            greeting = f"🔥 Look who decided to show up again, *{name}*! Streak: *{streak} days* (don't leave me hanging! 🥺)\n\n"
 
         full_welcome = greeting + welcome_text
 
