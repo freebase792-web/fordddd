@@ -898,6 +898,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Callback admin error: {e}", exc_info=True)
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
     finally:
+        session.close()
 
 
 def get_admin_panel_details():
