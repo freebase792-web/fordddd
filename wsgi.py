@@ -62,14 +62,24 @@ def start_bot_engine():
                 
             loop.run_until_complete(ptb_app.initialize())
             
-            # Set commands for Menu Button locally
+            # Set commands for Menu Button locally with user/admin scope separation
+            from telegram import BotCommandScopeDefault, BotCommandScopeChat
+            from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
             try:
-                loop.run_until_complete(ptb_app.bot.set_my_commands([
-                    ("start", "🚀 Start Bot"),
-                    ("admin", "⚡ Admin Panel")
-                ]))
+                loop.run_until_complete(ptb_app.bot.set_my_commands(
+                    [("start", "🚀 Start Bot")],
+                    scope=BotCommandScopeDefault()
+                ))
+                if ADMIN_TELEGRAM_ID:
+                    loop.run_until_complete(ptb_app.bot.set_my_commands(
+                        [
+                            ("start", "🚀 Start Bot"),
+                            ("admin", "⚡ Admin Control Panel")
+                        ],
+                        scope=BotCommandScopeChat(chat_id=ADMIN_TELEGRAM_ID)
+                    ))
             except Exception as cmd_err:
-                logging.warning(f"Failed to set commands: {cmd_err}")
+                logging.warning(f"Failed to set scoped commands: {cmd_err}")
 
             loop.run_until_complete(ptb_app.start())
             loop.run_until_complete(ptb_app.updater.start_polling())

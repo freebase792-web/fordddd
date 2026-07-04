@@ -663,14 +663,26 @@ def telegram_webhook(token):
             try:
                 await ptb_app.initialize()
                 
-                # Set Menu Button commands programmatically
+                # Set Menu Button commands programmatically with user/admin scope separation
+                from telegram import BotCommandScopeDefault, BotCommandScopeChat
                 try:
-                    await ptb_app.bot.set_my_commands([
-                        ("start", "🚀 Start Bot"),
-                        ("admin", "⚡ Admin Panel")
-                    ])
+                    # 1. Regular users only see the Start command
+                    await ptb_app.bot.set_my_commands(
+                        [("start", "🚀 Start Bot")],
+                        scope=BotCommandScopeDefault()
+                    )
+                    # 2. Only the Admin ID sees the Admin Panel command
+                    from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
+                    if ADMIN_TELEGRAM_ID:
+                        await ptb_app.bot.set_my_commands(
+                            [
+                                ("start", "🚀 Start Bot"),
+                                ("admin", "⚡ Admin Control Panel")
+                            ],
+                            scope=BotCommandScopeChat(chat_id=ADMIN_TELEGRAM_ID)
+                        )
                 except Exception as cmd_err:
-                    logger.error(f"Failed to set bot commands: {cmd_err}")
+                    logger.error(f"Failed to set scoped bot commands: {cmd_err}")
 
                 # Cache the bot user for future requests
                 if not _cached_bot_user and ptb_app.bot._bot_user:
