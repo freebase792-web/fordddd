@@ -130,22 +130,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         session.commit()
 
-        name = user.first_name or user.username or "there"
-        streak = user.streak_count
-
-        # Build welcome text
-        welcome_text = get_config(
-            "welcome_text",
-            "🎉 *Welcome to NexusBot!*\n\nYou're about to unlock something incredible.\nTap the button below to begin! 🚀"
-        )
-
-        if is_new:
-            greeting = f"😏 So you are finally attracted to me, *{name}*...\n\n"
-        else:
-            greeting = f"🔥 Look who decided to show up again, *{name}*! Streak: *{streak} days* (don't leave me hanging! 🥺)\n\n"
-
-        full_welcome = greeting + welcome_text
-
         # Dock the persistent custom Reply Keyboard at the bottom of the Telegram chat immediately
         try:
             await context.bot.send_message(
@@ -157,30 +141,16 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as kb_err:
             logger.error(f"Failed to dock custom reply keyboard: {kb_err}")
 
-        # Send welcome GIF if configured
-        welcome_gif_id = get_config("welcome_gif_id", "")
-        if welcome_gif_id:
-            try:
-                await context.bot.send_animation(
-                    chat_id=chat_id,
-                    animation=welcome_gif_id,
-                    caption=full_welcome,
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=start_keyboard(),
-                )
-            except Exception:
-                # Fallback to text if GIF fails
-                await update.message.reply_text(
-                    full_welcome,
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=start_keyboard(),
-                )
+        # Route the user dynamically based on whether they've answered the onboarding question
+        from bot.handlers.callbacks import _show_question
+        from bot.handlers.content import deliver_content
+
+        if user.question_answered:
+            # Returning user who already answered Yes/No -> go straight to content
+            await deliver_content(update, context)
         else:
-            await update.message.reply_text(
-                full_welcome,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=start_keyboard(),
-            )
+            # New user -> go straight to the onboarding question
+            await _show_question(update, context)
 
     except Exception as e:
         logger.error(f"Error in start_handler: {e}", exc_info=True)

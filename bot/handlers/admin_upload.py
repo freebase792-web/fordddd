@@ -428,6 +428,34 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await message.reply_text(f"✅ Onboarding Question updated successfully to:\n\n_{text}_", parse_mode=ParseMode.MARKDOWN)
             return
 
+        # 6. Handling YES option label update
+        if context.user_data.get("awaiting_yes_label"):
+            context.user_data.pop("awaiting_yes_label")
+            from bot.models.database import Question
+            q_item = session.query(Question).filter_by(is_active=True).first()
+            if q_item:
+                q_item.yes_label = text
+            else:
+                q_item = Question(question_text="Are you ready?", yes_label=text, is_active=True)
+                session.add(q_item)
+            session.commit()
+            await message.reply_text(f"✅ YES button option label updated to: `{text}`")
+            return
+
+        # 7. Handling NO option label update
+        if context.user_data.get("awaiting_no_label"):
+            context.user_data.pop("awaiting_no_label")
+            from bot.models.database import Question
+            q_item = session.query(Question).filter_by(is_active=True).first()
+            if q_item:
+                q_item.no_label = text
+            else:
+                q_item = Question(question_text="Are you ready?", no_label=text, is_active=True)
+                session.add(q_item)
+            session.commit()
+            await message.reply_text(f"✅ NO button option label updated to: `{text}`")
+            return
+
     except Exception as e:
         session.rollback()
         logger.error(f"Admin text config error: {e}", exc_info=True)
@@ -551,6 +579,22 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="🖼️ *Please send the Image or Sticker you want to use as the App Icon:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_edit_yes_opt":
+            context.user_data["awaiting_yes_label"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the new label text for the YES option button:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_edit_no_opt":
+            context.user_data["awaiting_no_label"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the new label text for the NO option button:*",
                 parse_mode=ParseMode.MARKDOWN
             )
 

@@ -105,6 +105,10 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> Inlin
             InlineKeyboardButton("❓ Edit Question ❓", callback_data="admin_prompt_edit_question")
         ],
         [
+            InlineKeyboardButton("🟢 Edit YES Label", callback_data="admin_prompt_edit_yes_opt"),
+            InlineKeyboardButton("🔴 Edit NO Label", callback_data="admin_prompt_edit_no_opt")
+        ],
+        [
             InlineKeyboardButton("❓ How to use ❓", callback_data="admin_how_to_use"),
             InlineKeyboardButton("📊 Get Report 📊", callback_data="admin_get_report")
         ],

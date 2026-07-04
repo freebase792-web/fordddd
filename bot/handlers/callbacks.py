@@ -50,11 +50,12 @@ async def _show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = update.effective_chat.id
 
-    # Safely delete the welcome message (text or GIF) to clear the screen and loading state
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
+    # Safely delete the welcome message (text or GIF) to clear the screen if this is a callback query
+    if query and query.message:
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
     session = Session()
     try:
