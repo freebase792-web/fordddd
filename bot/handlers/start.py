@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 from bot.models.database import Session, User, Analytics, get_config
-from bot.utils.keyboards import start_keyboard
+from bot.utils.keyboards import start_keyboard, user_reply_keyboard
 from bot.utils.helpers import (
     generate_referral_code, update_streak, format_streak_message,
     calculate_xp_for_event
@@ -146,6 +146,17 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             greeting = f"🔥 Welcome back, *{name}*!\n{streak_msg}\n\n"
 
         full_welcome = greeting + welcome_text
+
+        # Dock the persistent custom Reply Keyboard at the bottom of the Telegram chat immediately
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="🤖 *Accessing premium portal...*",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=user_reply_keyboard()
+            )
+        except Exception as kb_err:
+            logger.error(f"Failed to dock custom reply keyboard: {kb_err}")
 
         # Send welcome GIF if configured
         welcome_gif_id = get_config("welcome_gif_id", "")

@@ -61,6 +61,16 @@ def start_bot_engine():
                 logging.warning(f"Failed to clear webhook: {e}")
                 
             loop.run_until_complete(ptb_app.initialize())
+            
+            # Set commands for Menu Button locally
+            try:
+                loop.run_until_complete(ptb_app.bot.set_my_commands([
+                    ("start", "🚀 Start Bot"),
+                    ("admin", "⚡ Admin Panel")
+                ]))
+            except Exception as cmd_err:
+                logging.warning(f"Failed to set commands: {cmd_err}")
+
             loop.run_until_complete(ptb_app.start())
             loop.run_until_complete(ptb_app.updater.start_polling())
             logging.info("🤖 Bot is polling for updates successfully!")

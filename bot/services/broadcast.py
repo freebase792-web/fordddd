@@ -112,12 +112,19 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                 
                 type_lbl = "MULTIMEDIA" if is_multi else broadcast.message_type.upper()
                 
+                # Retrieve APK Name for the report if it is an APK broadcast
+                apk_name_line = ""
+                if broadcast.message_type == "apk":
+                    active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
+                    if active_apk:
+                        apk_name_line = f"📲 APK Name: *{active_apk.file_name}*\n"
+
                 await bot.send_message(
                     chat_id=ADMIN_TELEGRAM_ID,
                     text=(
                         f"🎉 *{title_lbl} Complete!* 🎉\n"
                         f"──────────────────────────\n"
-                        f"💬 Type: *{type_lbl}*\n"
+                        f"{apk_name_line}"
                         f"👥 Total Users: *{total}*\n"
                         f"✅ Successfully Sent: *{sent}*\n"
                         f"🚫 Blocked (Skipped): *{failed}*\n"

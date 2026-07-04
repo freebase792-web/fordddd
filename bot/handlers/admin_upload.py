@@ -414,6 +414,20 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await message.reply_text(f"✅ Welcome message updated successfully to:\n\n{text}", parse_mode=ParseMode.MARKDOWN)
             return
 
+        # 5. Handling onboarding question update
+        if context.user_data.get("awaiting_onboarding_question"):
+            context.user_data.pop("awaiting_onboarding_question")
+            from bot.models.database import Question
+            q_item = session.query(Question).filter_by(is_active=True).first()
+            if q_item:
+                q_item.question_text = text
+            else:
+                q_item = Question(question_text=text, is_active=True)
+                session.add(q_item)
+            session.commit()
+            await message.reply_text(f"✅ Onboarding Question updated successfully to:\n\n_{text}_", parse_mode=ParseMode.MARKDOWN)
+            return
+
     except Exception as e:
         session.rollback()
         logger.error(f"Admin text config error: {e}", exc_info=True)
@@ -537,6 +551,14 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="🖼️ *Please send the Image or Sticker you want to use as the App Icon:*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_edit_question":
+            context.user_data["awaiting_onboarding_question"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the new Onboarding Question text:*",
                 parse_mode=ParseMode.MARKDOWN
             )
 

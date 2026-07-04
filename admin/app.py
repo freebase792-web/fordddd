@@ -663,6 +663,15 @@ def telegram_webhook(token):
             try:
                 await ptb_app.initialize()
                 
+                # Set Menu Button commands programmatically
+                try:
+                    await ptb_app.bot.set_my_commands([
+                        ("start", "🚀 Start Bot"),
+                        ("admin", "⚡ Admin Panel")
+                    ])
+                except Exception as cmd_err:
+                    logger.error(f"Failed to set bot commands: {cmd_err}")
+
                 # Cache the bot user for future requests
                 if not _cached_bot_user and ptb_app.bot._bot_user:
                     _cached_bot_user = ptb_app.bot._bot_user
