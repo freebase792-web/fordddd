@@ -710,24 +710,18 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
 
         elif data in ("admin_toggle_demo", "admin_toggle_maintenance"):
-            from bot.utils.keyboards import admin_panel_keyboard
-            
             if data == "admin_toggle_demo":
                 current = get_config("demo_enabled", "true").lower() == "true"
                 set_config("demo_enabled", "false" if current else "true")
             else:
                 current = get_config("bot_enabled", "true").lower() == "true"
                 set_config("bot_enabled", "false" if current else "true")
-                
-            # Re-draw the keyboard with the updated config status
-            demo_on = get_config("demo_enabled", "true").lower() == "true"
-            bot_active = get_config("bot_enabled", "true").lower() == "true"
-            
+
+            text, keyboard = get_admin_panel_details()
             await query.edit_message_text(
-                "⚡ *NexusBot Admin Panel* ⚡\n\n"
-                "Manage your APKs, settings, content, and broadcasts directly from Telegram below:",
+                text,
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=admin_panel_keyboard(demo_on, bot_active)
+                reply_markup=keyboard
             )
 
         elif data == "admin_how_to_use":
@@ -886,6 +880,15 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             threading.Thread(target=run_custom_bg, daemon=True).start()
             await query.edit_message_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
 
+        elif data == "admin_back_to_panel":
+            context.user_data.clear()
+            text, keyboard = get_admin_panel_details()
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+
         elif data == "admin_cancel":
             context.user_data.clear()
             await query.edit_message_text("❌ Operations cancelled.")
@@ -894,5 +897,41 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         session.rollback()
         logger.error(f"Callback admin error: {e}", exc_info=True)
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+    finally:
+
+
+def get_admin_panel_details():
+    """Build the exact Admin Control Panel text and keyboard layout matching the user's screenshot."""
+    session = Session()
+    try:
+        total_users = session.query(User).count()
+
+        # Active APK details
+        active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
+        app_status = "Set" if active_apk else "Not set"
+        app_name = active_apk.file_name if active_apk else "None"
+
+        # Active Demo details
+        active_demo = session.query(Content).filter(Content.content_type != "apk", Content.is_active == True).first()
+        demo_status = "Set" if active_demo else "Not set"
+
+        # Configuration status
+        demo_on = get_config("demo_enabled", "true").lower() == "true"
+        bot_active = get_config("bot_enabled", "true").lower() == "true"
+
+        text = (
+            "⚙️ *ADMIN CONTROL PANEL* ⚙️\n"
+            "──────────────────────────\n"
+            f"👥 Total Verified Users: *{total_users}*\n"
+            f"📱 App Status: *{app_status}*\n"
+            f"📛 App Name: *{app_name}*\n"
+            f"🌸 Demo URL: *{demo_status}*\n"
+            "──────────────────────────\n"
+            "👇 _Niche diye buttons se manage karein:_"
+        )
+
+        from bot.utils.keyboards import admin_panel_keyboard
+        keyboard = admin_panel_keyboard(demo_on, bot_active)
+        return text, keyboard
     finally:
         session.close()

@@ -62,6 +62,24 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                     [InlineKeyboardButton(btn_text, callback_data="download_apk")]
                 ])
 
+        # Initialize live progress message in Admin's chat
+        progress_msg = None
+        from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
+        if ADMIN_TELEGRAM_ID:
+            try:
+                progress_msg = await bot.send_message(
+                    chat_id=ADMIN_TELEGRAM_ID,
+                    text=(
+                        f"📢 *Broadcast #{broadcast_id} Initialized...* ⏳\n"
+                        f"──────────────────────────\n"
+                        f"👥 Target: *{total}* users\n"
+                        f"🚀 Starting delivery sequence..."
+                    ),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as init_err:
+                logger.error(f"Failed to send initial progress message: {init_err}")
+
         for user in users:
             success = await _send_to_user(
                 bot=bot,
@@ -81,6 +99,25 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                 broadcast.failed_count = failed
                 session.commit()
 
+                if progress_msg:
+                    try:
+                        pct = ((sent + failed) / total) * 100
+                        await bot.edit_message_text(
+                            chat_id=ADMIN_TELEGRAM_ID,
+                            message_id=progress_msg.message_id,
+                            text=(
+                                f"📢 *Broadcast #{broadcast_id} in Progress...* ⏳\n"
+                                f"──────────────────────────\n"
+                                f"👥 Total Target: *{total}*\n"
+                                f"✅ Successfully Sent: *{sent}*\n"
+                                f"🚫 Blocked (Skipped): *{failed}*\n"
+                                f"📊 Progress: *{pct:.1f}% done*"
+                            ),
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    except Exception as update_err:
+                        logger.debug(f"Failed to update progress: {update_err}")
+
             # Rate limiting
             await asyncio.sleep(SEND_INTERVAL)
 
@@ -94,7 +131,6 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
         logger.info(f"Broadcast {broadcast_id} complete: {sent}/{total} sent, {failed} failed")
 
         # ── Send completion report to Admin inside Telegram (matching reference image) ──
-        from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
         if ADMIN_TELEGRAM_ID:
             try:
                 title_lbl = "APK Blast" if broadcast.message_type == "apk" else "Broadcast"
@@ -119,21 +155,38 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                     if active_apk:
                         apk_name_line = f"📲 APK Name: *{active_apk.file_name}*\n"
 
-                await bot.send_message(
-                    chat_id=ADMIN_TELEGRAM_ID,
-                    text=(
-                        f"🎉 *{title_lbl} Complete!* 🎉\n"
-                        f"──────────────────────────\n"
-                        f"{apk_name_line}"
-                        f"👥 Total Users: *{total}*\n"
-                        f"✅ Successfully Sent: *{sent}*\n"
-                        f"🚫 Blocked (Skipped): *{failed}*\n"
-                        f"⚠️ Other Fails: *0*\n"
-                        f"──────────────────────────\n"
-                        f"All done! 💪🔥"
-                    ),
-                    parse_mode=ParseMode.MARKDOWN
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Back to Admin", callback_data="admin_back_to_panel")]
+                ])
+
+                report_text = (
+                    f"🎉 *{title_lbl} Complete!* 🎉\n"
+                    f"──────────────────────────\n"
+                    f"{apk_name_line}"
+                    f"👥 Total Users: *{total}*\n"
+                    f"✅ Successfully Sent: *{sent}*\n"
+                    f"🚫 Blocked (Skipped): *{failed}*\n"
+                    f"⚠️ Other Fails: *0*\n"
+                    f"──────────────────────────\n"
+                    f"All done! 💪🔥"
                 )
+
+                if progress_msg:
+                    await bot.edit_message_text(
+                        chat_id=ADMIN_TELEGRAM_ID,
+                        message_id=progress_msg.message_id,
+                        text=report_text,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=keyboard
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=ADMIN_TELEGRAM_ID,
+                        text=report_text,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=keyboard
+                    )
             except Exception as report_err:
                 logger.error(f"Failed to send broadcast completion report: {report_err}")
 
