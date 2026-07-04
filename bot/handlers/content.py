@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 from bot.models.database import Session, User, Content, Analytics, get_config
-from bot.utils.keyboards import content_keyboard, back_to_content_keyboard
+from bot.utils.keyboards import content_keyboard, back_to_content_keyboard, user_reply_keyboard
 from bot.utils.helpers import calculate_xp_for_event, format_xp_level
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=chat_id,
             text=closing_msg,
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=content_keyboard(apk_version, apk_button_text),
+            reply_markup=user_reply_keyboard(),
         )
 
     except Exception as e:

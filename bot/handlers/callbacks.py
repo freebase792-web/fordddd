@@ -252,3 +252,22 @@ async def _show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in _show_stats: {e}", exc_info=True)
     finally:
         session.close()
+
+
+async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text message inputs matching the custom bottom Reply Keyboard buttons."""
+    message = update.message
+    if not message or not message.text:
+        return
+
+    text = message.text.strip()
+
+    if text == "📱 Download APK":
+        await send_apk_to_user(update, context)
+    elif text == "🌸 See Demo" or text == "🎁 See Content Again":
+        await deliver_content(update, context)
+    elif text == "🌟 Actually, I changed my mind!":
+        await _handle_yes(update, context)
+    elif text == "🔗 Share with a friend" or text == "🔗 Get Referral Link":
+        await _show_referral(update, context)
+

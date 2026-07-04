@@ -623,8 +623,9 @@ def settings():
     return render_template("admin/settings.html", configs=configs)
 
 
-# Cache bot user details globally to bypass get_me() requests on every webhook call
+# Cache bot user details and user_data globally to bypass get_me() requests and persist state across requests
 _cached_bot_user = None
+_global_user_data = {}
 
 @app.route(f"/webhook/<token>", methods=["POST"])
 def telegram_webhook(token):
@@ -642,7 +643,7 @@ def telegram_webhook(token):
     # This prevents Gunicorn from blocking on slow API calls and eliminates all lag!
     def run_update_in_background(update_data):
         async def _handle_update_async():
-            global _cached_bot_user
+            global _cached_bot_user, _global_user_data
             
             # Create a fresh Application instance for this thread's loop
             ptb_app = (
@@ -651,6 +652,9 @@ def telegram_webhook(token):
                 .build()
             )
             register_handlers(ptb_app)
+
+            # Restore the user_data state mapping
+            ptb_app.user_data.update(_global_user_data)
 
             # Inject the cached bot user to bypass the get_me() HTTP request
             if _cached_bot_user:
@@ -668,6 +672,10 @@ def telegram_webhook(token):
             except Exception as thread_err:
                 logger.error(f"Error processing update in background: {thread_err}", exc_info=True)
             finally:
+                # Save the updated user_data mapping back to the global process store
+                _global_user_data.clear()
+                _global_user_data.update(ptb_app.user_data)
+                
                 # Cleanly shutdown the HTTP client connections for this thread's loop
                 await ptb_app.shutdown()
 

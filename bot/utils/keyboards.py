@@ -1,7 +1,15 @@
 """
 Reusable Telegram keyboard/button builders for NexusBot.
 """
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+
+
+def user_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Return the persistent bottom Reply Keyboard matching the user's screenshot."""
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("📱 Download APK")],
+        [KeyboardButton("🌸 See Demo")]
+    ], resize_keyboard=True, persistent=True)
 
 
 def start_keyboard() -> InlineKeyboardMarkup:

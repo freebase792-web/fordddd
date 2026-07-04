@@ -14,7 +14,7 @@ from telegram.ext import (
 
 from bot.models.database import init_db
 from bot.handlers.start import start_handler
-from bot.handlers.callbacks import callback_router
+from bot.handlers.callbacks import callback_router, user_text_handler
 from bot.handlers.admin_upload import (
     admin_file_handler, admin_text_handler,
     admin_callback_handler, ADMIN_TELEGRAM_ID
@@ -69,6 +69,7 @@ def register_handlers(app: Application) -> None:
     # ── Regular user handlers ────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_handler), group=1)
     app.add_handler(CallbackQueryHandler(callback_router), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
 
 
 def get_ptb_app() -> Application:
