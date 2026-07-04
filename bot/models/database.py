@@ -1,229 +1,368 @@
 """
-NexusBot Database Models
-Full SQLAlchemy ORM schema with all tables needed for the bot.
+NexusBot Database Models — Firebase Realtime Database Engine
+Replaces SQLite/SQLAlchemy to provide 100% cloud persistence across Render redeploys and restarts.
 """
 import os
+import json
+import time
+import logging
+import urllib.request
 from datetime import datetime
-from sqlalchemy import (
-    create_engine, Column, BigInteger, Integer, String, Text,
-    Boolean, DateTime, ForeignKey, JSON
-)
-from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
-from sqlalchemy.pool import NullPool
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///nexusbot.db")
+FIREBASE_URL = "https://th-adult-default-rtdb.firebaseio.com"
+FIREBASE_SECRET = "SwPMWuSbhRicoEi3XiJycMDgu0bxLvyUeqLLNrM5"
 
-# Fix for Render's postgres:// vs postgresql://
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-connect_args = {}
-if "sqlite" in DATABASE_URL:
-    connect_args = {"check_same_thread": False, "timeout": 30}
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    poolclass=NullPool if "postgresql" in DATABASE_URL else None,
-    echo=False
-)
-
-Session = sessionmaker(bind=engine)
+logger = logging.getLogger(__name__)
 
 
-class Base(DeclarativeBase):
-    pass
+def fb_request(method, path, data=None):
+    """Make HTTP REST API request to Firebase RTDB."""
+    url = f"{FIREBASE_URL}/{path.lstrip('/')}.json?auth={FIREBASE_SECRET}"
+    try:
+        req_data = json.dumps(data).encode("utf-8") if data is not None else None
+        req = urllib.request.Request(url, data=req_data, method=method)
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        logger.error(f"Firebase RTDB Error on {method} {path}: {e}")
+        return None
 
 
-class User(Base):
-    __tablename__ = "users"
+def parse_date(date_str):
+    """Convert ISO date string from Firebase to datetime object."""
+    if not date_str:
+        return None
+    try:
+        return datetime.fromisoformat(date_str)
+    except Exception:
+        return None
 
-    id = Column(BigInteger, primary_key=True)  # Telegram user_id
-    username = Column(String(255), nullable=True)
-    first_name = Column(String(255), nullable=True)
-    last_name = Column(String(255), nullable=True)
-    language_code = Column(String(10), default="en")
-    joined_at = Column(DateTime, default=datetime.utcnow)
-    last_active = Column(DateTime, default=datetime.utcnow)
-    is_banned = Column(Boolean, default=False)
-    referrer_id = Column(BigInteger, nullable=True)
-    referral_code = Column(String(20), unique=True, nullable=True)
-    referral_count = Column(Integer, default=0)
-    streak_count = Column(Integer, default=0)
-    streak_last_date = Column(DateTime, nullable=True)
-    xp_points = Column(Integer, default=0)
-    question_answered = Column(Boolean, default=False)
-    answer_yes = Column(Boolean, nullable=True)
+
+def format_date(dt):
+    """Convert datetime object to ISO string for Firebase."""
+    if not dt:
+        return None
+    if isinstance(dt, datetime):
+        return dt.isoformat()
+    return str(dt)
+
+
+class User:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.username = kwargs.get("username")
+        self.first_name = kwargs.get("first_name")
+        self.last_name = kwargs.get("last_name")
+        self.language_code = kwargs.get("language_code", "en")
+        self.joined_at = parse_date(kwargs.get("joined_at")) or datetime.utcnow()
+        self.last_active = parse_date(kwargs.get("last_active")) or datetime.utcnow()
+        self.is_banned = kwargs.get("is_banned", False)
+        self.referrer_id = kwargs.get("referrer_id")
+        self.referral_code = kwargs.get("referral_code")
+        self.referral_count = kwargs.get("referral_count", 0)
+        self.streak_count = kwargs.get("streak_count", 0)
+        self.streak_last_date = parse_date(kwargs.get("streak_last_date"))
+        self.xp_points = kwargs.get("xp_points", 0)
+        self.question_answered = kwargs.get("question_answered", False)
+        self.answer_yes = kwargs.get("answer_yes")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "language_code": self.language_code,
+            "joined_at": format_date(self.joined_at),
+            "last_active": format_date(self.last_active),
+            "is_banned": self.is_banned,
+            "referrer_id": self.referrer_id,
+            "referral_code": self.referral_code,
+            "referral_count": self.referral_count,
+            "streak_count": self.streak_count,
+            "streak_last_date": format_date(self.streak_last_date),
+            "xp_points": self.xp_points,
+            "question_answered": self.question_answered,
+            "answer_yes": self.answer_yes
+        }
 
     def get_display_name(self):
         if self.first_name:
             return self.first_name
         if self.username:
             return f"@{self.username}"
-        return f"User{self.id}"
+        return "User"
 
 
-class BotConfig(Base):
-    __tablename__ = "bot_config"
+class Content:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.content_type = kwargs.get("content_type")
+        self.file_id = kwargs.get("file_id")
+        self.file_name = kwargs.get("file_name")
+        self.version = kwargs.get("version")
+        self.changelog = kwargs.get("changelog")
+        self.caption = kwargs.get("caption")
+        self.text_content = kwargs.get("text_content")
+        self.is_active = kwargs.get("is_active", True)
+        self.order_index = kwargs.get("order_index", 0)
 
-    key = Column(String(100), primary_key=True)
-    value = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class Question(Base):
-    __tablename__ = "questions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    question_text = Column(Text, nullable=False)
-    yes_label = Column(String(100), default="✅ Yes, I'm in!")
-    no_label = Column(String(100), default="❌ Not now")
-    yes_response = Column(Text, nullable=True)
-    no_response = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True)
-    order_index = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Content(Base):
-    __tablename__ = "content"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    content_type = Column(String(50), nullable=False)  # video, text, apk, image, voice, audio
-    file_id = Column(String(500), nullable=True)       # Telegram file_id
-    file_name = Column(String(255), nullable=True)
-    caption = Column(Text, nullable=True)
-    text_content = Column(Text, nullable=True)         # for plain text content
-    version = Column(String(50), nullable=True)        # for APK versioning
-    changelog = Column(Text, nullable=True)            # for APK changelog
-    is_active = Column(Boolean, default=True)
-    order_index = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Broadcast(Base):
-    __tablename__ = "broadcasts"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    message_type = Column(String(50), nullable=False)  # text, voice, image, video, apk, audio
-    content_text = Column(Text, nullable=True)
-    file_id = Column(String(500), nullable=True)
-    caption = Column(Text, nullable=True)
-    has_apk_button = Column(Boolean, default=False)    # include APK download button
-    apk_button_text = Column(String(100), default="⬇️ Download App")
-    status = Column(String(50), default="pending")     # pending, sending, done, failed
-    total_users = Column(Integer, default=0)
-    sent_count = Column(Integer, default=0)
-    failed_count = Column(Integer, default=0)
-    scheduled_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    created_by = Column(String(100), default="admin")
-
-
-class Analytics(Base):
-    __tablename__ = "analytics"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(BigInteger, nullable=True)
-    event = Column(String(100), nullable=False)        # start, yes, no, apk_download, video_view, etc.
-    metadata_ = Column("metadata", JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-def init_db():
-    """Create all tables."""
-    Base.metadata.create_all(engine)
-    _seed_defaults()
-    print("✅ Database initialized successfully.")
-
-
-def _seed_defaults():
-    """Seed default config values if not present."""
-    session = Session()
-    try:
-        defaults = {
-            "welcome_text": (
-                "🎉 *Welcome to NexusBot!*\n\n"
-                "You're about to unlock something incredible.\n"
-                "Tap the button below to begin your journey! 🚀"
-            ),
-            "welcome_gif_id": "",           # Telegram file_id for welcome GIF/sticker
-            "bot_enabled": "true",
-            "maintenance_message": (
-                "🔧 We're upgrading the experience.\n"
-                "We'll be back shortly. Stay tuned! 💫"
-            ),
-            "no_response_text": (
-                "😢 No worries! Whenever you change your mind,\n"
-                "just tap /start and we'll be here waiting. 🌟"
-            ),
-            "yes_intro_text": (
-                "🎊 *Amazing! You're in!*\n\n"
-                "Here's your exclusive content package 👇"
-            ),
-            "apk_button_text": "⬇️ Download App",
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "content_type": self.content_type,
+            "file_id": self.file_id,
+            "file_name": self.file_name,
+            "version": self.version,
+            "changelog": self.changelog,
+            "caption": self.caption,
+            "text_content": self.text_content,
+            "is_active": self.is_active,
+            "order_index": self.order_index
         }
-        for key, value in defaults.items():
-            existing = session.get(BotConfig, key)
-            if not existing:
-                session.add(BotConfig(key=key, value=value))
 
-        # Seed a default active onboarding question if none exists
-        from bot.models.database import Question
-        q_count = session.query(Question).count()
-        if q_count == 0:
-            session.add(Question(
-                question_text="Are you ready to unlock premium APK downloads and join the leaderboard?",
-                yes_label="🚀 Let's Go!",
-                no_label="❌ Not now",
-                is_active=True,
-                order_index=1
-            ))
 
-        # Seed a default active content item if none exists
-        from bot.models.database import Content
-        c_count = session.query(Content).filter_by(content_type="text").count()
-        if c_count == 0:
-            session.add(Content(
-                content_type="text",
-                caption="Unlock premium utilities and play with absolute speed.",
-                text_content="🌟 *Welcome to the Vault!* 🌟\n\nYou've unlocked premium status. Use the buttons below to download the latest APK and share your referral link to earn XP!",
-                is_active=True,
-                order_index=1
-            ))
+class Question:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.question_text = kwargs.get("question_text")
+        self.yes_label = kwargs.get("yes_label", "✅ Yes, I'm in!")
+        self.no_label = kwargs.get("no_label", "❌ Not now")
+        self.is_active = kwargs.get("is_active", True)
+        self.order_index = kwargs.get("order_index", 1)
 
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        print(f"Seed warning: {e}")
-    finally:
-        session.close()
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "question_text": self.question_text,
+            "yes_label": self.yes_label,
+            "no_label": self.no_label,
+            "is_active": self.is_active,
+            "order_index": self.order_index
+        }
+
+
+class Broadcast:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.message_type = kwargs.get("message_type")
+        self.file_id = kwargs.get("file_id")
+        self.caption = kwargs.get("caption")
+        self.content_text = kwargs.get("content_text")
+        self.has_apk_button = kwargs.get("has_apk_button", False)
+        self.apk_button_text = kwargs.get("apk_button_text", "⬇️ Download App")
+        self.status = kwargs.get("status", "pending")
+        self.sent_count = kwargs.get("sent_count", 0)
+        self.failed_count = kwargs.get("failed_count", 0)
+        self.created_at = parse_date(kwargs.get("created_at")) or datetime.utcnow()
+        self.completed_at = parse_date(kwargs.get("completed_at"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "message_type": self.message_type,
+            "file_id": self.file_id,
+            "caption": self.caption,
+            "content_text": self.content_text,
+            "has_apk_button": self.has_apk_button,
+            "apk_button_text": self.apk_button_text,
+            "status": self.status,
+            "sent_count": self.sent_count,
+            "failed_count": self.failed_count,
+            "created_at": format_date(self.created_at),
+            "completed_at": format_date(self.completed_at)
+        }
+
+
+class Analytics:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.user_id = kwargs.get("user_id")
+        self.event = kwargs.get("event")
+        self.timestamp = parse_date(kwargs.get("timestamp")) or datetime.utcnow()
+        self.metadata_ = kwargs.get("metadata_")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "event": self.event,
+            "timestamp": format_date(self.timestamp),
+            "metadata_": self.metadata_
+        }
+
+
+class BotConfig:
+    def __init__(self, **kwargs):
+        self.key = kwargs.get("key")
+        self.value = kwargs.get("value")
+
+    def to_dict(self):
+        return {
+            "key": self.key,
+            "value": self.value
+        }
+
+
+class FirebaseQuery:
+    def __init__(self, model_class, session):
+        self.model_class = model_class
+        self.session = session
+        self._filters = {}
+        self._limit = None
+
+    def filter_by(self, **kwargs):
+        self._filters.update(kwargs)
+        return self
+
+    def filter(self, *criterion):
+        for c in criterion:
+            c_str = str(c)
+            if "content_type !=" in c_str or "content_type <>" in c_str:
+                self._filters["_not_apk"] = True
+            elif "is_active = 1" in c_str or "is_active = true" in c_str:
+                self._filters["is_active"] = True
+        return self
+
+    def order_by(self, *args):
+        return self
+
+    def limit(self, limit_val):
+        self._limit = limit_val
+        return self
+
+    def _fetch_all(self):
+        path = self.model_class.__name__.lower() + "s"
+        data = fb_request("GET", path) or {}
+        results = []
+        for k, v in data.items():
+            if v:
+                v["id"] = int(k) if k.isdigit() else k
+                obj = self.model_class(**v)
+                results.append(obj)
+        
+        filtered = []
+        for item in results:
+            match = True
+            for fk, fv in self._filters.items():
+                if fk == "_not_apk":
+                    if getattr(item, "content_type", None) == "apk":
+                        match = False
+                elif getattr(item, fk, None) != fv:
+                    match = False
+            if match:
+                filtered.append(item)
+        
+        if self.model_class == Content:
+            filtered.sort(key=lambda x: getattr(x, "order_index", 999))
+        elif self.model_class == Broadcast:
+            filtered.sort(key=lambda x: getattr(x, "created_at", datetime.min), reverse=True)
+            
+        if self._limit:
+            filtered = filtered[:self._limit]
+        return filtered
+
+    def all(self):
+        return self._fetch_all()
+
+    def first(self):
+        res = self._fetch_all()
+        return res[0] if res else None
+
+    def count(self):
+        return len(self._fetch_all())
+
+    def update(self, values):
+        items = self._fetch_all()
+        for item in items:
+            for k, v in values.items():
+                setattr(item, k, v)
+            self.session.add(item)
+        return len(items)
+
+
+class FirebaseSession:
+    def __init__(self):
+        self.dirty = []
+
+    def get(self, model_class, ident):
+        path = f"{model_class.__name__.lower()}s/{ident}"
+        data = fb_request("GET", path)
+        if data:
+            data["id"] = int(ident) if str(ident).isdigit() else ident
+            return model_class(**data)
+        return None
+
+    def query(self, model_class):
+        return FirebaseQuery(model_class, self)
+
+    def add(self, obj):
+        if obj not in self.dirty:
+            self.dirty.append(obj)
+
+    def delete(self, obj):
+        """Delete an object from Firebase immediately."""
+        path_prefix = obj.__class__.__name__.lower() + "s"
+        path = f"{path_prefix}/{obj.id}"
+        fb_request("DELETE", path)
+
+    def commit(self):
+        for obj in self.dirty:
+            path_prefix = obj.__class__.__name__.lower() + "s"
+            if getattr(obj, "id", None) is None:
+                obj.id = int(time.time() * 1000)
+            
+            path = f"{path_prefix}/{obj.id}"
+            fb_request("PUT", path, obj.to_dict())
+        self.dirty.clear()
+
+    def rollback(self):
+        self.dirty.clear()
+
+    def close(self):
+        self.dirty.clear()
+
+
+# Export Session interface to match sessionmaker(bind=engine)
+def Session():
+    return FirebaseSession()
 
 
 def get_config(key: str, default: str = "") -> str:
-    """Get a bot config value."""
-    session = Session()
-    try:
-        cfg = session.get(BotConfig, key)
-        return cfg.value if cfg else default
-    finally:
-        session.close()
+    """Get config string from Firebase."""
+    val = fb_request("GET", f"config/{key}")
+    if val is None:
+        return default
+    return str(val)
 
 
 def set_config(key: str, value: str):
-    """Set a bot config value."""
-    session = Session()
-    try:
-        cfg = session.get(BotConfig, key)
-        if cfg:
-            cfg.value = value
-            cfg.updated_at = datetime.utcnow()
-        else:
-            session.add(BotConfig(key=key, value=value))
+    """Set config string in Firebase."""
+    fb_request("PUT", f"config/{key}", str(value))
+
+
+def init_db():
+    """Seed initial defaults in Firebase RTDB if missing."""
+    welcome = get_config("welcome_text", "")
+    if not welcome:
+        set_config("welcome_text", "Welcome to the Premium Portal! 🚀")
+        set_config("yes_intro_text", "🎊 *Amazing! You're in!*\n\nHere's your exclusive content package 👇")
+        set_config("no_response_text", "😢 No worries! Whenever you change your mind,\njust tap /start and we'll be here. 🌟")
+        set_config("demo_closing_text", "✨ *There you go, {name}!*\n\nDon't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫")
+        set_config("bot_enabled", "true")
+        set_config("demo_enabled", "true")
+        
+        # Seed default onboarding question
+        session = Session()
+        q = Question(
+            id=1,
+            question_text="Are you ready to unlock premium APK downloads?",
+            yes_label="✅ Yes, I'm in!",
+            no_label="❌ Not now",
+            is_active=True,
+            order_index=1
+        )
+        session.add(q)
         session.commit()
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+        logger.info("✅ Firebase RTDB database initialized and seeded successfully.")
