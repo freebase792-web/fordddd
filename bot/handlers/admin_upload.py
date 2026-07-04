@@ -97,6 +97,31 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
+    # Check if we are compiling a multi-media broadcast list
+    media_list = context.user_data.get("awaiting_broadcast_media_list")
+    if media_list is not None:
+        media_list.append({
+            "type": content_type,
+            "file_id": file_id,
+            "caption": message.caption or ""
+        })
+        context.user_data["awaiting_broadcast_media_list"] = media_list
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Done (Confirm)", callback_data="admin_confirm_bc_media_done")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+        ])
+
+        await message.reply_text(
+            f"📁 *Added to Broadcast list!*\n\n"
+            f"• Type: `{content_type}`\n"
+            f"• Total Items: *{len(media_list)}*\n\n"
+            f"Send more text/files to add, or tap **Done** to proceed.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard
+        )
+        return
+
     # Check if we are waiting for broadcast content
     if context.user_data.get("awaiting_broadcast_content"):
         context.user_data.pop("awaiting_broadcast_content", None)
@@ -261,6 +286,30 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = Session()
 
     try:
+        # Check if we are compiling a multi-media broadcast list
+        media_list = context.user_data.get("awaiting_broadcast_media_list")
+        if media_list is not None:
+            media_list.append({
+                "type": "text",
+                "text": text
+            })
+            context.user_data["awaiting_broadcast_media_list"] = media_list
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Done (Confirm)", callback_data="admin_confirm_bc_media_done")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            ])
+
+            await message.reply_text(
+                f"✍️ *Text Item added to Broadcast list!*\n\n"
+                f"• Preview: _{text[:60]}..._\n"
+                f"• Total Items: *{len(media_list)}*\n\n"
+                f"Send more text/files to add, or tap **Done** to proceed.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+            return
+
         # Check if we are waiting for broadcast text content
         if context.user_data.get("awaiting_broadcast_content"):
             context.user_data.pop("awaiting_broadcast_content", None)
@@ -585,19 +634,57 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("📲 *APK Broadcast started in the background!* Users will receive it shortly.")
 
         elif data == "admin_prompt_broadcast_media":
-            context.user_data["awaiting_broadcast_content"] = True
+            context.user_data["awaiting_broadcast_media_list"] = []
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="📢 *Please send the broadcast content now.*\n\nIt can be a *Text*, *Voice Note*, *Image*, *Video*, *Audio*, or *Document/APK*.",
-                parse_mode=ParseMode.MARKDOWN
+                text=(
+                    "📢 *Multi-Media Broadcast Builder active!* 📢\n\n"
+                    "Send me any files or messages you want to include in this broadcast (Texts, Voice Notes, Photos, Videos, Audio, Documents/APKs) one-by-one.\n\n"
+                    "Tap **✅ Done (Confirm)** when you've sent all files to launch the broadcast."
+                ),
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Done (Confirm)", callback_data="admin_confirm_bc_media_done")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+                ])
+            )
+
+        elif data == "admin_confirm_bc_media_done":
+            media_list = context.user_data.get("awaiting_broadcast_media_list", [])
+            if not media_list:
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ No items added yet. Please send some media or text first.")
+                return
+                
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Attach APK Button", callback_data="admin_confirm_bc_yes_apk"),
+                    InlineKeyboardButton("❌ No APK Button", callback_data="admin_confirm_bc_no_apk")
+                ],
+                [InlineKeyboardButton("Cancel", callback_data="admin_cancel")]
+            ])
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"📊 *Multi-Media sequence contains {len(media_list)} items.*\n\nDo you want to attach the APK download button below this broadcast?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
             )
 
         elif data in ("admin_confirm_bc_yes_apk", "admin_confirm_bc_no_apk"):
             has_apk = (data == "admin_confirm_bc_yes_apk")
-            bc_type = context.user_data.pop("broadcast_type", "text")
-            bc_file_id = context.user_data.pop("broadcast_file_id", None)
-            bc_caption = context.user_data.pop("broadcast_caption", None)
-            bc_text = context.user_data.pop("broadcast_text", None)
+            media_list = context.user_data.pop("awaiting_broadcast_media_list", None)
+            
+            import json
+            if media_list:
+                bc_type = "multimedia"
+                bc_file_id = None
+                bc_caption = None
+                bc_text = json.dumps(media_list)
+            else:
+                # Fallback to single media item
+                bc_type = context.user_data.pop("broadcast_type", "text")
+                bc_file_id = context.user_data.pop("broadcast_file_id", None)
+                bc_caption = context.user_data.pop("broadcast_caption", None)
+                bc_text = context.user_data.pop("broadcast_text", None)
 
             # Build and commit broadcast database record
             new_bc = Broadcast(
@@ -606,7 +693,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 caption=bc_caption,
                 content_text=bc_text,
                 has_apk_button=has_apk,
-                apk_button_text="⬇&nbsp;Download App",
+                apk_button_text="⬇️ Download App",
                 status="pending"
             )
             session.add(new_bc)

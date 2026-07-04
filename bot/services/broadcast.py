@@ -97,14 +97,27 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
         from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
         if ADMIN_TELEGRAM_ID:
             try:
-                # Custom report heading based on message type
                 title_lbl = "APK Blast" if broadcast.message_type == "apk" else "Broadcast"
+                
+                # Check if it was a multimedia sequence
+                is_multi = False
+                if broadcast.content_text:
+                    try:
+                        import json
+                        parsed = json.loads(broadcast.content_text)
+                        if isinstance(parsed, list):
+                            is_multi = True
+                    except Exception:
+                        pass
+                
+                type_lbl = "MULTIMEDIA" if is_multi else broadcast.message_type.upper()
+                
                 await bot.send_message(
                     chat_id=ADMIN_TELEGRAM_ID,
                     text=(
                         f"🎉 *{title_lbl} Complete!* 🎉\n"
                         f"──────────────────────────\n"
-                        f"💬 Type: *{broadcast.message_type.upper()}*\n"
+                        f"💬 Type: *{type_lbl}*\n"
                         f"👥 Total Users: *{total}*\n"
                         f"✅ Successfully Sent: *{sent}*\n"
                         f"🚫 Blocked (Skipped): *{failed}*\n"
@@ -135,73 +148,95 @@ async def _send_to_user(
     session,
     attempt: int = 1,
 ) -> bool:
-    """Send a single broadcast message to one user. Retries up to MAX_RETRIES."""
+    """Send a single broadcast message (or multi-media sequence) to one user. Retries up to MAX_RETRIES."""
     try:
-        msg_type = broadcast.message_type
-        file_id = broadcast.file_id
-        caption = broadcast.caption or ""
-        text = broadcast.content_text or ""
+        # Check if the broadcast text is a serialized JSON array of multiple media items
+        items = []
+        if broadcast.content_text:
+            try:
+                import json
+                parsed = json.loads(broadcast.content_text)
+                if isinstance(parsed, list):
+                    items = parsed
+            except Exception:
+                pass
 
-        if msg_type == "text":
-            await bot.send_message(
-                chat_id=user_id,
-                text=text,
-                parse_mode="Markdown",
-                reply_markup=reply_markup,
-            )
-        elif msg_type == "image":
-            await bot.send_photo(
-                chat_id=user_id,
-                photo=file_id,
-                caption=caption,
-                parse_mode="Markdown",
-                reply_markup=reply_markup,
-            )
-        elif msg_type == "video":
-            await bot.send_video(
-                chat_id=user_id,
-                video=file_id,
-                caption=caption,
-                parse_mode="Markdown",
-                supports_streaming=True,
-                reply_markup=reply_markup,
-            )
-        elif msg_type == "voice":
-            # Voice note — native Telegram voice message
-            await bot.send_voice(
-                chat_id=user_id,
-                voice=file_id,
-                caption=caption,
-                reply_markup=reply_markup,
-            )
-        elif msg_type == "audio":
-            await bot.send_audio(
-                chat_id=user_id,
-                audio=file_id,
-                caption=caption,
-                reply_markup=reply_markup,
-            )
-        elif msg_type == "apk" or msg_type == "document":
-            await bot.send_document(
-                chat_id=user_id,
-                document=file_id,
-                caption=caption,
-                parse_mode="Markdown",
-                reply_markup=reply_markup,
-            )
+        # Fallback to single media item if not a serialized sequence
+        if not items:
+            items = [{
+                "type": broadcast.message_type,
+                "file_id": broadcast.file_id,
+                "caption": broadcast.caption,
+                "text": broadcast.content_text
+            }]
+
+        # Send all items in sequence to the user
+        for idx, item in enumerate(items):
+            msg_type = item.get("type", "text")
+            file_id = item.get("file_id")
+            caption = item.get("caption") or ""
+            text = item.get("text") or ""
+            
+            # Attach the APK button reply_markup ONLY to the final item in the sequence
+            item_markup = reply_markup if idx == len(items) - 1 else None
+
+            if msg_type == "text":
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    reply_markup=item_markup,
+                )
+            elif msg_type == "image":
+                await bot.send_photo(
+                    chat_id=user_id,
+                    photo=file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                    reply_markup=item_markup,
+                )
+            elif msg_type == "video":
+                await bot.send_video(
+                    chat_id=user_id,
+                    video=file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                    supports_streaming=True,
+                    reply_markup=item_markup,
+                )
+            elif msg_type == "voice":
+                await bot.send_voice(
+                    chat_id=user_id,
+                    voice=file_id,
+                    caption=caption,
+                    reply_markup=item_markup,
+                )
+            elif msg_type == "audio":
+                await bot.send_audio(
+                    chat_id=user_id,
+                    audio=file_id,
+                    caption=caption,
+                    reply_markup=item_markup,
+                )
+            elif msg_type in ("apk", "document"):
+                await bot.send_document(
+                    chat_id=user_id,
+                    document=file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                    reply_markup=item_markup,
+                )
 
         return True
 
     except TelegramError as e:
         err_msg = str(e).lower()
-        # User blocked bot or deleted account — don't retry
         if any(x in err_msg for x in ["blocked", "deactivated", "not found", "chat not found"]):
             return False
-        # Retry on other errors
         if attempt < MAX_RETRIES:
             await asyncio.sleep(1)
             return await _send_to_user(bot, user_id, broadcast, reply_markup, session, attempt + 1)
-        logger.warning(f"Failed to send to {user_id} after {MAX_RETRIES} attempts: {e}")
+        logger.warning(f"Failed to send to {user_id} after {attempt} attempts: {e}")
         return False
     except Exception as e:
         logger.error(f"Unexpected error sending to {user_id}: {e}")
