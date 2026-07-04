@@ -50,6 +50,12 @@ async def _show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat_id = update.effective_chat.id
 
+    # Safely delete the welcome message (text or GIF) to clear the screen and loading state
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
     session = Session()
     try:
         question = (
@@ -72,7 +78,8 @@ async def _show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"_{question.question_text}_"
         )
 
-        await query.edit_message_text(
+        await context.bot.send_message(
+            chat_id=chat_id,
             text=question_msg,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=question_keyboard(question.yes_label, question.no_label),
@@ -88,6 +95,12 @@ async def _handle_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle YES answer — deliver content."""
     query = update.callback_query
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
 
     session = Session()
     try:
@@ -104,7 +117,8 @@ async def _handle_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
 
     # Show exciting transition message
-    await query.edit_message_text(
+    await context.bot.send_message(
+        chat_id=chat_id,
         text=(
             "🎊 *YES! Let's go!*\n\n"
             "⚡ Loading your exclusive content...\n"
@@ -121,6 +135,12 @@ async def _handle_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle NO answer — friendly response with option to reconsider."""
     query = update.callback_query
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
 
     session = Session()
     try:
@@ -141,7 +161,8 @@ async def _handle_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "😢 No worries! Whenever you change your mind,\njust tap below and we'll be here. 🌟"
     )
 
-    await query.edit_message_text(
+    await context.bot.send_message(
+        chat_id=chat_id,
         text=no_response,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reconsider_keyboard(),

@@ -163,6 +163,31 @@ def _seed_defaults():
             existing = session.get(BotConfig, key)
             if not existing:
                 session.add(BotConfig(key=key, value=value))
+
+        # Seed a default active onboarding question if none exists
+        from bot.models.database import Question
+        q_count = session.query(Question).count()
+        if q_count == 0:
+            session.add(Question(
+                question_text="Are you ready to unlock premium APK downloads and join the leaderboard?",
+                yes_label="🚀 Let's Go!",
+                no_label="❌ Not now",
+                is_active=True,
+                order_index=1
+            ))
+
+        # Seed a default active content item if none exists
+        from bot.models.database import Content
+        c_count = session.query(Content).filter_by(content_type="text").count()
+        if c_count == 0:
+            session.add(Content(
+                content_type="text",
+                caption="Unlock premium utilities and play with absolute speed.",
+                text_content="🌟 *Welcome to the Vault!* 🌟\n\nYou've unlocked premium status. Use the buttons below to download the latest APK and share your referral link to earn XP!",
+                is_active=True,
+                order_index=1
+            ))
+
         session.commit()
     except Exception as e:
         session.rollback()

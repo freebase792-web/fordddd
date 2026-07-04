@@ -623,10 +623,6 @@ def settings():
     return render_template("admin/settings.html", configs=configs)
 
 
-# ─────────────────────────────────────────
-# Webhook endpoint (receives Telegram updates)
-# ─────────────────────────────────────────
-
 # Cache bot user details globally to bypass get_me() requests on every webhook call
 _cached_bot_user = None
 
@@ -640,41 +636,48 @@ def telegram_webhook(token):
     from telegram.ext import Application
     from bot.main import register_handlers
 
-    async def _handle_update_async():
-        global _cached_bot_user
-        data = request.get_json(force=True)
+    data = request.get_json(force=True)
 
-        # Create a completely fresh Application instance for this request's loop
-        ptb_app = (
-            Application.builder()
-            .token(BOT_TOKEN)
-            .build()
-        )
-        register_handlers(ptb_app)
+    # Process the update in a background thread to return 200 OK instantly to Telegram.
+    # This prevents Gunicorn from blocking on slow API calls and eliminates all lag!
+    def run_update_in_background(update_data):
+        async def _handle_update_async():
+            global _cached_bot_user
+            
+            # Create a fresh Application instance for this thread's loop
+            ptb_app = (
+                Application.builder()
+                .token(BOT_TOKEN)
+                .build()
+            )
+            register_handlers(ptb_app)
 
-        # Inject the cached bot user directly to bypass the HTTP call to get_me()
-        if _cached_bot_user:
-            ptb_app.bot._bot_user = _cached_bot_user
-            ptb_app.bot._initialized = True
+            # Inject the cached bot user to bypass the get_me() HTTP request
+            if _cached_bot_user:
+                ptb_app.bot._bot_user = _cached_bot_user
+
+            try:
+                await ptb_app.initialize()
+                
+                # Cache the bot user for future requests
+                if not _cached_bot_user and ptb_app.bot._bot_user:
+                    _cached_bot_user = ptb_app.bot._bot_user
+
+                update = Update.de_json(update_data, ptb_app.bot)
+                await ptb_app.process_update(update)
+            except Exception as thread_err:
+                logger.error(f"Error processing update in background: {thread_err}", exc_info=True)
+            finally:
+                # Cleanly shutdown the HTTP client connections for this thread's loop
+                await ptb_app.shutdown()
 
         try:
-            await ptb_app.initialize()
-            
-            # Cache the bot user for future requests if not done yet
-            if not _cached_bot_user and ptb_app.bot._bot_user:
-                _cached_bot_user = ptb_app.bot._bot_user
+            asyncio.run(_handle_update_async())
+        except Exception as loop_err:
+            logger.error(f"Failed to run event loop in background: {loop_err}", exc_info=True)
 
-            update = Update.de_json(data, ptb_app.bot)
-            await ptb_app.process_update(update)
-        finally:
-            # Cleanly shutdown the HTTP client connections for this closed loop
-            await ptb_app.shutdown()
-
-    try:
-        asyncio.run(_handle_update_async())
-    except Exception as e:
-        logger.error(f"Webhook processing error: {e}", exc_info=True)
-
+    # Start the daemon thread and return instantly
+    threading.Thread(target=run_update_in_background, args=(data,), daemon=True).start()
     return "ok", 200
 
 
