@@ -87,6 +87,7 @@ class User:
     xp_points = FieldDescriptor("xp_points")
     question_answered = FieldDescriptor("question_answered")
     answer_yes = FieldDescriptor("answer_yes")
+    downloaded_apk = FieldDescriptor("downloaded_apk")
 
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
@@ -105,6 +106,7 @@ class User:
         self.xp_points = kwargs.get("xp_points", 0)
         self.question_answered = kwargs.get("question_answered", False)
         self.answer_yes = kwargs.get("answer_yes")
+        self.downloaded_apk = kwargs.get("downloaded_apk", False)
 
     def to_dict(self):
         return {
@@ -123,7 +125,8 @@ class User:
             "streak_last_date": format_date(self.streak_last_date),
             "xp_points": self.xp_points,
             "question_answered": self.question_answered,
-            "answer_yes": self.answer_yes
+            "answer_yes": self.answer_yes,
+            "downloaded_apk": self.downloaded_apk
         }
 
     def get_display_name(self):
@@ -179,6 +182,8 @@ class Question:
     question_text = FieldDescriptor("question_text")
     yes_label = FieldDescriptor("yes_label")
     no_label = FieldDescriptor("no_label")
+    yes_response = FieldDescriptor("yes_response")
+    no_response = FieldDescriptor("no_response")
     is_active = FieldDescriptor("is_active")
     order_index = FieldDescriptor("order_index")
 
@@ -187,6 +192,8 @@ class Question:
         self.question_text = kwargs.get("question_text")
         self.yes_label = kwargs.get("yes_label", "✅ Yes, I'm in!")
         self.no_label = kwargs.get("no_label", "❌ Not now")
+        self.yes_response = kwargs.get("yes_response")
+        self.no_response = kwargs.get("no_response")
         self.is_active = kwargs.get("is_active", True)
         self.order_index = kwargs.get("order_index", 1)
 
@@ -196,6 +203,8 @@ class Question:
             "question_text": self.question_text,
             "yes_label": self.yes_label,
             "no_label": self.no_label,
+            "yes_response": self.yes_response,
+            "no_response": self.no_response,
             "is_active": self.is_active,
             "order_index": self.order_index
         }
@@ -243,6 +252,36 @@ class Broadcast:
             "failed_count": self.failed_count,
             "created_at": format_date(self.created_at),
             "completed_at": format_date(self.completed_at)
+        }
+
+
+class SubAdmin:
+    telegram_id = FieldDescriptor("telegram_id")
+    name = FieldDescriptor("name")
+    username = FieldDescriptor("username")
+    role = FieldDescriptor("role")
+    added_by = FieldDescriptor("added_by")
+    added_at = FieldDescriptor("added_at")
+    is_active = FieldDescriptor("is_active")
+
+    def __init__(self, **kwargs):
+        self.telegram_id = kwargs.get("telegram_id")
+        self.name = kwargs.get("name")
+        self.username = kwargs.get("username")
+        self.role = kwargs.get("role", "admin")
+        self.added_by = kwargs.get("added_by")
+        self.added_at = parse_date(kwargs.get("added_at")) or datetime.utcnow()
+        self.is_active = kwargs.get("is_active", True)
+
+    def to_dict(self):
+        return {
+            "telegram_id": self.telegram_id,
+            "name": self.name,
+            "username": self.username,
+            "role": self.role,
+            "added_by": self.added_by,
+            "added_at": format_date(self.added_at),
+            "is_active": self.is_active,
         }
 
 
