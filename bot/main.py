@@ -84,4 +84,29 @@ def get_ptb_app() -> Application:
     return _ptb_app
 
 
+async def init_application():
+    """Initialize the shared Application once at startup."""
+    ptb_app = get_ptb_app()
+    await ptb_app.initialize()
+
+    from telegram import BotCommandScopeDefault, BotCommandScopeChat
+    try:
+        await ptb_app.bot.set_my_commands(
+            [("start", "🚀 Start Bot")],
+            scope=BotCommandScopeDefault()
+        )
+        if ADMIN_TELEGRAM_ID:
+            await ptb_app.bot.set_my_commands(
+                [
+                    ("start", "🚀 Start Bot"),
+                    ("admin", "⚡ Admin Control Panel")
+                ],
+                scope=BotCommandScopeChat(chat_id=ADMIN_TELEGRAM_ID)
+            )
+    except Exception as cmd_err:
+        logger.warning(f"Failed to set scoped commands: {cmd_err}")
+
+    logger.info("✅ Shared Application initialized successfully.")
+
+
 
