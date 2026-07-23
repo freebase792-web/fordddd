@@ -6,12 +6,13 @@ from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import TelegramError
 from telegram.constants import ParseMode
 
-from bot.models.database import Session, User, Broadcast, Analytics, Content, get_config, fb_request
+from bot.models.database import Session, Broadcast, Content, fb_request
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-BATCH_SIZE = 5
+CHUNK_SIZE = 20
+CHUNK_SLEEP = 1.0
 
 
 async def execute_broadcast(broadcast_id: int, bot_token: str):
@@ -28,8 +29,8 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
         broadcast.status = "sending"
         session.commit()
 
-        users = session.query(User).filter_by(is_banned=False).all()
-        total = len(users)
+        user_ids = session.get_user_ids()
+        total = len(user_ids)
         broadcast.total_users = total
         session.commit()
 
@@ -60,41 +61,34 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                         f"📢 *Broadcast #{broadcast_id} Initialized...* ⏳\n"
                         f"──────────────────────────\n"
                         f"👥 Target: *{total}* users\n"
-                        f"🚀 Starting delivery sequence with {BATCH_SIZE}x parallel..."
+                        f"🚀 Sending in chunks of {CHUNK_SIZE}..."
                     ),
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
                 pass
 
-        semaphore = asyncio.Semaphore(BATCH_SIZE)
+        for i in range(0, total, CHUNK_SIZE):
+            chunk_ids = user_ids[i:i + CHUNK_SIZE]
+            tasks = [_send_to_user(bot, uid, broadcast, reply_markup) for uid in chunk_ids]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        async def send_single(user) -> bool:
-            async with semaphore:
-                return await _send_to_user(
-                    bot=bot, user_id=user.id,
-                    broadcast=broadcast, reply_markup=reply_markup,
-                )
+            for r in results:
+                if r is True:
+                    sent += 1
+                else:
+                    failed += 1
 
-        pending = [send_single(u) for u in users]
-        done_count = 0
+            done = min(i + CHUNK_SIZE, total)
 
-        for coro in asyncio.as_completed(pending):
-            success = await coro
-            if success:
-                sent += 1
-            else:
-                failed += 1
-            done_count += 1
-
-            if done_count % 50 == 0 or done_count == total:
+            if done % 100 == 0 or done == total:
                 fb_request("PATCH", f"broadcasts/{broadcast.id}", {
                     "sent_count": sent, "failed_count": failed,
                 })
-                if progress_msg and done_count % 100 == 0:
+                if progress_msg:
                     try:
-                        remaining = total - done_count
-                        pct = (done_count / total) * 100
+                        remaining = total - done
+                        pct = (done / total) * 100
                         await bot.edit_message_text(
                             chat_id=ADMIN_TELEGRAM_ID,
                             message_id=progress_msg.message_id,
@@ -111,6 +105,9 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                         )
                     except Exception:
                         pass
+
+            if i + CHUNK_SIZE < total:
+                await asyncio.sleep(current_sleep)
 
         broadcast.sent_count = sent
         broadcast.failed_count = failed
@@ -227,6 +224,15 @@ async def _send_to_user(
         err_msg = str(e).lower()
         if any(x in err_msg for x in ["blocked", "deactivated", "not found", "chat not found"]):
             return False
+        if "429" in err_msg or "too many requests" in err_msg:
+            retry_after = 2
+            try:
+                retry_after = int(str(e).split("retry after ")[1].split()[0]) + 1
+            except Exception:
+                pass
+            await asyncio.sleep(retry_after)
+            if attempt < MAX_RETRIES:
+                return await _send_to_user(bot, user_id, broadcast, reply_markup, attempt + 1)
         if attempt < MAX_RETRIES:
             await asyncio.sleep(1)
             return await _send_to_user(bot, user_id, broadcast, reply_markup, attempt + 1)
