@@ -33,6 +33,31 @@ def get_admin_role(user_id: int) -> str:
     return "admin"
 
 
+async def _make_sub_admin(message, target_id, target_name, target_username, adder_id):
+    fb_request("PUT", f"sub_admins/{target_id}", {
+        "telegram_id": target_id,
+        "name": target_name or "Sub Admin",
+        "username": target_username or "",
+        "role": "admin",
+        "added_by": adder_id,
+        "added_at": datetime.utcnow().isoformat(),
+        "is_active": True,
+    })
+    auth_username = target_username or f"user_{target_id}"
+    fb_request("PUT", f"sub_admin_auth/{auth_username}", {
+        "username": auth_username,
+        "password": "subadmin123",
+        "telegram_id": target_id,
+        "role": "admin",
+    })
+    await message.reply_text(
+        f"✅ *{target_name or 'User'} is now a Sub Admin!*\n\n"
+        f"Default login: username `{auth_username}`, password `subadmin123`\n"
+        f"Tell them to send /admin to access the panel.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
 async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles any file/media sent directly to the bot by the admin.
@@ -44,35 +69,31 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message = update.message
     chat_id = update.effective_chat.id
 
-    # Check if super admin is forwarding a user to appoint as sub-admin
+    # Check if super admin is adding a sub-admin (via forward or paste user ID)
     if context.user_data.get("awaiting_sub_admin_forward"):
         context.user_data.pop("awaiting_sub_admin_forward", None)
         fwd_from = message.forward_from if hasattr(message, 'forward_from') else None
-        if not fwd_from:
-            await message.reply_text("❌ Cannot get user ID. The user must send /start to this bot first, then forward their message.")
+        target_id = None
+        target_name = None
+        target_username = None
+
+        if fwd_from:
+            target_id = fwd_from.id
+            target_name = fwd_from.first_name or "Sub Admin"
+            target_username = fwd_from.username or ""
+        elif message.text and message.text.strip().isdigit():
+            target_id = int(message.text.strip())
+            target_name = "Sub Admin (ID)"
+            target_username = ""
+
+        if not target_id:
+            await message.reply_text(
+                "❌ Forward a message from the user, or paste their Telegram User ID.\n\n"
+                "📌 To get someone's ID: forward their message to @userinfobot"
+            )
             return
-        target_id = fwd_from.id
-        fb_request("PUT", f"sub_admins/{target_id}", {
-            "telegram_id": target_id,
-            "name": fwd_from.first_name or "Sub Admin",
-            "username": fwd_from.username or "",
-            "role": "admin",
-            "added_by": user.id,
-            "added_at": datetime.utcnow().isoformat(),
-            "is_active": True,
-        })
-        fb_request("PUT", f"sub_admin_auth/{fwd_from.username or f'user_{target_id}'}", {
-            "username": fwd_from.username or f"user_{target_id}",
-            "password": "subadmin123",
-            "telegram_id": target_id,
-            "role": "admin",
-        })
-        await message.reply_text(
-            f"✅ *{fwd_from.first_name or 'User'} is now a Sub Admin!*\n\n"
-            f"Default login: username `{fwd_from.username or 'user_'+str(target_id)}`, password `subadmin123`\n"
-            f"Tell them to send /admin to access the panel.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+
+        await _make_sub_admin(message, target_id, target_name, target_username, user.id)
         return
 
     file_id = None
@@ -363,35 +384,31 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = Session()
 
     try:
-        # Check if super admin is forwarding a user to appoint as sub-admin
+        # Check if super admin is adding a sub-admin (via forward or paste user ID)
         if context.user_data.get("awaiting_sub_admin_forward"):
             context.user_data.pop("awaiting_sub_admin_forward", None)
             fwd_from = message.forward_from if hasattr(message, 'forward_from') else None
-            if not fwd_from:
-                await message.reply_text("❌ Cannot get user ID. The user must send /start to this bot first, then forward their message.")
+            target_id = None
+            target_name = None
+            target_username = None
+
+            if fwd_from:
+                target_id = fwd_from.id
+                target_name = fwd_from.first_name or "Sub Admin"
+                target_username = fwd_from.username or ""
+            elif text.isdigit():
+                target_id = int(text)
+                target_name = "Sub Admin (ID)"
+                target_username = ""
+
+            if not target_id:
+                await message.reply_text(
+                    "❌ Forward a message from the user, or paste their Telegram User ID.\n\n"
+                    "📌 To get someone's ID: forward their message to @userinfobot"
+                )
                 return
-            target_id = fwd_from.id
-            fb_request("PUT", f"sub_admins/{target_id}", {
-                "telegram_id": target_id,
-                "name": fwd_from.first_name or "Sub Admin",
-                "username": fwd_from.username or "",
-                "role": "admin",
-                "added_by": user.id,
-                "added_at": datetime.utcnow().isoformat(),
-                "is_active": True,
-            })
-            fb_request("PUT", f"sub_admin_auth/{fwd_from.username or f'user_{target_id}'}", {
-                "username": fwd_from.username or f"user_{target_id}",
-                "password": "subadmin123",
-                "telegram_id": target_id,
-                "role": "admin",
-            })
-            await message.reply_text(
-                f"✅ *{fwd_from.first_name or 'User'} is now a Sub Admin!*\n\n"
-                f"Default login: username `{fwd_from.username or 'user_'+str(target_id)}`, password `subadmin123`\n"
-                f"Tell them to send /admin to access the panel.",
-                parse_mode=ParseMode.MARKDOWN
-            )
+
+            await _make_sub_admin(message, target_id, target_name, target_username, user.id)
             return
 
         # Check if we are compiling a multi-media demo sequence
