@@ -25,6 +25,9 @@ from bot.models.database import (
 from bot.main import get_ptb_app
 from bot.models.database import get_cached, set_cache
 
+_bot_loop = asyncio.new_event_loop()
+_bot_lock = threading.Lock()
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder="templates")
@@ -722,12 +725,13 @@ def telegram_webhook(token):
     data = request.get_json(force=True)
     ptb_app = get_ptb_app()
 
-    try:
-        async def process():
-            update = Update.de_json(data, ptb_app.bot)
-            await ptb_app.process_update(update)
+    async def process():
+        update = Update.de_json(data, ptb_app.bot)
+        await ptb_app.process_update(update)
 
-        asyncio.run(process())
+    try:
+        with _bot_lock:
+            _bot_loop.run_until_complete(process())
     except Exception as e:
         logger.error(f"Error processing update: {e}", exc_info=True)
 
