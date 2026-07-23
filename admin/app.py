@@ -20,7 +20,7 @@ from flask import (
 
 from bot.models.database import (
     Session as DBSession, User, Content, Question, Broadcast,
-    Analytics, BotConfig, get_config, set_config, init_db
+    Analytics, BotConfig, get_config, set_config, init_db, fb_request
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,18 @@ def login_required(f):
     return decorated
 
 
+def super_admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("admin_logged_in"):
+            return redirect(url_for("login"))
+        if session.get("admin_role") != "super_admin":
+            flash("Access denied. Super admin only.", "danger")
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return decorated
+
+
 @app.route("/admin/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -59,9 +71,17 @@ def login():
         password = request.form.get("password", "")
         if username == ADMIN_USERNAME and password == ADMIN_SECRET:
             session["admin_logged_in"] = True
-            flash("✅ Welcome back, Admin!", "success")
+            session["admin_role"] = "super_admin"
+            flash("Welcome back, Super Admin!", "success")
             return redirect(url_for("dashboard"))
-        flash("❌ Invalid credentials", "danger")
+        auth_data = fb_request("GET", f"sub_admin_auth/{username}")
+        if auth_data and auth_data.get("password") == password:
+            session["admin_logged_in"] = True
+            session["admin_role"] = "admin"
+            session["admin_telegram_id"] = auth_data.get("telegram_id")
+            flash(f"Welcome, {username}!", "success")
+            return redirect(url_for("dashboard"))
+        flash("Invalid credentials", "danger")
     return render_template("admin/login.html")
 
 
@@ -88,6 +108,8 @@ def dashboard():
         no_users = db.query(User).filter_by(answer_yes=False).count()
 
         apk_downloads = db.query(Analytics).filter_by(event="apk_download").count()
+        users_downloaded = db.query(User).filter_by(downloaded_apk=True).count()
+        download_rate = round((users_downloaded / yes_users * 100), 1) if yes_users else 0
         active_content = db.query(Content).filter_by(is_active=True).count()
 
         recent_broadcasts = (
@@ -119,6 +141,8 @@ def dashboard():
             yes_users=yes_users,
             no_users=no_users,
             apk_downloads=apk_downloads,
+            users_downloaded=users_downloaded,
+            download_rate=download_rate,
             active_content=active_content,
             recent_broadcasts=recent_broadcasts,
             daily_stats=list(reversed(daily_stats)),
@@ -146,6 +170,7 @@ def toggle_bot():
 
 @app.route("/admin/webhook/register", methods=["POST"])
 @login_required
+@super_admin_required
 def register_webhook():
     """Re-register the bot webhook."""
     try:
@@ -599,6 +624,66 @@ def user_ban(uid):
 
 
 # ─────────────────────────────────────────
+# Admin Management (Super Admin Only)
+# ─────────────────────────────────────────
+
+@app.route("/admin/admins")
+@login_required
+@super_admin_required
+def admin_list():
+    sub_admins = []
+    data = fb_request("GET", "sub_admins")
+    if data and isinstance(data, dict):
+        for k, v in data.items():
+            if v and v.get("is_active", False):
+                v["telegram_id"] = int(k)
+                sub_admins.append(v)
+    return render_template("admin/admins.html", sub_admins=sub_admins)
+
+
+@app.route("/admin/admins/add", methods=["POST"])
+@login_required
+@super_admin_required
+def admin_add():
+    telegram_id = request.form.get("telegram_id", "").strip()
+    name = request.form.get("name", "").strip()
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    if not telegram_id or not telegram_id.isdigit():
+        flash("Valid Telegram ID is required.", "danger")
+        return redirect(url_for("admin_list"))
+
+    fb_request("PUT", f"sub_admins/{telegram_id}", {
+        "telegram_id": int(telegram_id),
+        "name": name or "Sub Admin",
+        "username": username or "",
+        "role": "admin",
+        "added_by": ADMIN_TELEGRAM_ID,
+        "added_at": datetime.utcnow().isoformat(),
+        "is_active": True,
+    })
+    fb_request("PUT", f"sub_admin_auth/{username}", {
+        "username": username,
+        "password": password,
+        "telegram_id": int(telegram_id),
+        "role": "admin",
+    })
+
+    flash(f"Sub-admin '{name or telegram_id}' added.", "success")
+    return redirect(url_for("admin_list"))
+
+
+@app.route("/admin/admins/remove/<int:tid>", methods=["POST"])
+@login_required
+@super_admin_required
+def admin_remove(tid):
+    fb_request("PUT", f"sub_admins/{tid}/is_active", False)
+    flash(f"Sub-admin {tid} removed.", "success")
+    return redirect(url_for("admin_list"))
+
+
+# ─────────────────────────────────────────
 # Bot Config / Settings
 # ─────────────────────────────────────────
 
@@ -608,6 +693,7 @@ def settings():
     config_keys = [
         "welcome_text", "welcome_gif_id", "yes_intro_text",
         "no_response_text", "maintenance_message", "apk_button_text",
+        "demo_closing_text", "install_guide_text",
     ]
     if request.method == "POST":
         try:
