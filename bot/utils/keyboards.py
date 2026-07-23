@@ -76,12 +76,11 @@ def stats_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> InlineKeyboardMarkup:
-    """Construct the Telegram-based Admin Panel controls matching the user's requested layout."""
-    demo_status = "🟢 Demo Content: ON" if demo_on else "🔴 Demo Content: OFF"
+def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True, role: str = "super_admin") -> InlineKeyboardMarkup:
+    demo_status = "🟢 Demo: ON" if demo_on else "🔴 Demo: OFF"
     bot_status = "🟢 Bot: ACTIVE" if bot_active else "🟡 Bot: MAINTENANCE"
-    
-    return InlineKeyboardMarkup([
+
+    buttons = [
         [InlineKeyboardButton("📢 Broadcast Media 📢", callback_data="admin_prompt_broadcast_media")],
         [InlineKeyboardButton("📲 Send APK To All 📲", callback_data="admin_broadcast_apk")],
         [
@@ -109,6 +108,12 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> Inlin
             InlineKeyboardButton("🟢 Edit YES Label", callback_data="admin_prompt_edit_yes_opt"),
             InlineKeyboardButton("🔴 Edit NO Label", callback_data="admin_prompt_edit_no_opt")
         ],
+    ]
+
+    if role == "super_admin":
+        buttons.append([InlineKeyboardButton("👥 Manage Admins 👥", callback_data="admin_manage_sub_admins")])
+
+    buttons += [
         [
             InlineKeyboardButton("❓ How to use ❓", callback_data="admin_how_to_use"),
             InlineKeyboardButton("📊 Get Report 📊", callback_data="admin_get_report")
@@ -117,5 +122,6 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True) -> Inlin
             InlineKeyboardButton("📖 Admin Guide 📖", callback_data="admin_guide"),
             InlineKeyboardButton("❌ Close Panel", callback_data="admin_cancel")
         ]
-    ])
+    ]
+    return InlineKeyboardMarkup(buttons)
 
