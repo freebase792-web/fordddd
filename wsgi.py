@@ -47,7 +47,7 @@ def start_bot_engine():
         
         # Helper to run updater.start_polling() in a background event loop
         def run_polling_thread():
-            from bot.main import get_ptb_app
+            from bot.main import init_application, get_ptb_app
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
@@ -59,28 +59,8 @@ def start_bot_engine():
                 logging.info("🧹 Cleared old webhook from Telegram.")
             except Exception as e:
                 logging.warning(f"Failed to clear webhook: {e}")
-                
-            loop.run_until_complete(ptb_app.initialize())
-            
-            # Set commands for Menu Button locally with user/admin scope separation
-            from telegram import BotCommandScopeDefault, BotCommandScopeChat
-            from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
-            try:
-                loop.run_until_complete(ptb_app.bot.set_my_commands(
-                    [("start", "🚀 Start Bot")],
-                    scope=BotCommandScopeDefault()
-                ))
-                if ADMIN_TELEGRAM_ID:
-                    loop.run_until_complete(ptb_app.bot.set_my_commands(
-                        [
-                            ("start", "🚀 Start Bot"),
-                            ("admin", "⚡ Admin Control Panel")
-                        ],
-                        scope=BotCommandScopeChat(chat_id=ADMIN_TELEGRAM_ID)
-                    ))
-            except Exception as cmd_err:
-                logging.warning(f"Failed to set scoped commands: {cmd_err}")
 
+            loop.run_until_complete(init_application())
             loop.run_until_complete(ptb_app.start())
             loop.run_until_complete(ptb_app.updater.start_polling())
             logging.info("🤖 Bot is polling for updates successfully!")
@@ -115,6 +95,16 @@ def start_bot_engine():
                     logging.warning(f"❌ Telegram setWebhook failed: {res_data.get('description')}")
         except Exception as err:
             logging.warning(f"❌ Failed to connect to Telegram setWebhook API: {err}")
+
+        # Initialize the shared Application for webhook mode
+        from bot.main import init_application
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(init_application())
+            loop.close()
+        except Exception as e:
+            logging.warning(f"Application init warning: {e}")
 
 start_bot_engine()
 
