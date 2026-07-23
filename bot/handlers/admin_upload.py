@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from bot.models.database import Session, Content, BotConfig, set_config, get_config, User, Broadcast, Analytics
+from bot.models.database import Session, Content, BotConfig, set_config, get_config, User, Broadcast, Analytics, fb_request
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,16 @@ ADMIN_TELEGRAM_ID = int(os.environ.get("ADMIN_TELEGRAM_ID", "0"))
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if the sender is the designated admin."""
-    return ADMIN_TELEGRAM_ID != 0 and user_id == ADMIN_TELEGRAM_ID
+    if ADMIN_TELEGRAM_ID != 0 and user_id == ADMIN_TELEGRAM_ID:
+        return True
+    data = fb_request("GET", f"sub_admins/{user_id}")
+    return bool(data and data.get("is_active", False))
+
+
+def get_admin_role(user_id: int) -> str:
+    if ADMIN_TELEGRAM_ID != 0 and user_id == ADMIN_TELEGRAM_ID:
+        return "super_admin"
+    return "admin"
 
 
 async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,6 +43,37 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     message = update.message
     chat_id = update.effective_chat.id
+
+    # Check if super admin is forwarding a user to appoint as sub-admin
+    if context.user_data.get("awaiting_sub_admin_forward"):
+        context.user_data.pop("awaiting_sub_admin_forward", None)
+        fwd_from = message.forward_from if hasattr(message, 'forward_from') else None
+        if not fwd_from:
+            await message.reply_text("❌ Cannot get user ID. The user must send /start to this bot first, then forward their message.")
+            return
+        target_id = fwd_from.id
+        fb_request("PUT", f"sub_admins/{target_id}", {
+            "telegram_id": target_id,
+            "name": fwd_from.first_name or "Sub Admin",
+            "username": fwd_from.username or "",
+            "role": "admin",
+            "added_by": user.id,
+            "added_at": datetime.utcnow().isoformat(),
+            "is_active": True,
+        })
+        fb_request("PUT", f"sub_admin_auth/{fwd_from.username or f'user_{target_id}'}", {
+            "username": fwd_from.username or f"user_{target_id}",
+            "password": "subadmin123",
+            "telegram_id": target_id,
+            "role": "admin",
+        })
+        await message.reply_text(
+            f"✅ *{fwd_from.first_name or 'User'} is now a Sub Admin!*\n\n"
+            f"Default login: username `{fwd_from.username or 'user_'+str(target_id)}`, password `subadmin123`\n"
+            f"Tell them to send /admin to access the panel.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
 
     file_id = None
     content_type = None
@@ -312,6 +351,37 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = Session()
 
     try:
+        # Check if super admin is forwarding a user to appoint as sub-admin
+        if context.user_data.get("awaiting_sub_admin_forward"):
+            context.user_data.pop("awaiting_sub_admin_forward", None)
+            fwd_from = message.forward_from if hasattr(message, 'forward_from') else None
+            if not fwd_from:
+                await message.reply_text("❌ Cannot get user ID. The user must send /start to this bot first, then forward their message.")
+                return
+            target_id = fwd_from.id
+            fb_request("PUT", f"sub_admins/{target_id}", {
+                "telegram_id": target_id,
+                "name": fwd_from.first_name or "Sub Admin",
+                "username": fwd_from.username or "",
+                "role": "admin",
+                "added_by": user.id,
+                "added_at": datetime.utcnow().isoformat(),
+                "is_active": True,
+            })
+            fb_request("PUT", f"sub_admin_auth/{fwd_from.username or f'user_{target_id}'}", {
+                "username": fwd_from.username or f"user_{target_id}",
+                "password": "subadmin123",
+                "telegram_id": target_id,
+                "role": "admin",
+            })
+            await message.reply_text(
+                f"✅ *{fwd_from.first_name or 'User'} is now a Sub Admin!*\n\n"
+                f"Default login: username `{fwd_from.username or 'user_'+str(target_id)}`, password `subadmin123`\n"
+                f"Tell them to send /admin to access the panel.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
         # Check if we are compiling a multi-media demo sequence
         demo_list = context.user_data.get("awaiting_demo_media_list")
         if demo_list is not None:
@@ -717,7 +787,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 current = get_config("bot_enabled", "true").lower() == "true"
                 set_config("bot_enabled", "false" if current else "true")
 
-            text, keyboard = get_admin_panel_details()
+            text, keyboard = get_admin_panel_details(user_id=user.id)
             await query.edit_message_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN,
@@ -880,9 +950,42 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             threading.Thread(target=run_custom_bg, daemon=True).start()
             await query.edit_message_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
 
+        elif data == "admin_manage_sub_admins":
+            if get_admin_role(user.id) != "super_admin":
+                await context.bot.send_message(chat_id=chat_id, text="⛔ Only super admin can manage admins.")
+                return
+            sub_admin_data = fb_request("GET", "sub_admins") or {}
+            msg_lines = ["👥 *Sub Admins:*\n"]
+            if sub_admin_data and isinstance(sub_admin_data, dict):
+                for tid, info in sub_admin_data.items():
+                    if info and info.get("is_active"):
+                        msg_lines.append(f"• {info.get('name', 'Unknown')} (@{info.get('username', '—')})")
+            else:
+                msg_lines.append("_No sub-admins appointed._")
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Add Sub Admin", callback_data="admin_prompt_add_sub_admin")],
+                [InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")],
+            ])
+            await query.edit_message_text(
+                "\n".join(msg_lines),
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+
+        elif data == "admin_prompt_add_sub_admin":
+            if get_admin_role(user.id) != "super_admin":
+                return
+            context.user_data["awaiting_sub_admin_forward"] = True
+            await query.edit_message_text(
+                "📤 *Forward me a message from the user you want to appoint as Sub Admin.*\n\n"
+                "Any message they sent to this bot will work.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
         elif data == "admin_back_to_panel":
             context.user_data.clear()
-            text, keyboard = get_admin_panel_details()
+            text, keyboard = get_admin_panel_details(user_id=user.id)
             await query.edit_message_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN,
@@ -901,22 +1004,18 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         session.close()
 
 
-def get_admin_panel_details():
-    """Build the exact Admin Control Panel text and keyboard layout matching the user's screenshot."""
+def get_admin_panel_details(user_id: int = 0):
     session = Session()
     try:
         total_users = session.query(User).count()
 
-        # Active APK details
         active_apk = session.query(Content).filter_by(content_type="apk", is_active=True).first()
         app_status = "Set" if active_apk else "Not set"
         app_name = active_apk.file_name if active_apk else "None"
 
-        # Active Demo details
         active_demo = session.query(Content).filter(Content.content_type != "apk", Content.is_active == True).first()
         demo_status = "Set" if active_demo else "Not set"
 
-        # Configuration status
         demo_on = get_config("demo_enabled", "true").lower() == "true"
         bot_active = get_config("bot_enabled", "true").lower() == "true"
 
@@ -932,7 +1031,8 @@ def get_admin_panel_details():
         )
 
         from bot.utils.keyboards import admin_panel_keyboard
-        keyboard = admin_panel_keyboard(demo_on, bot_active)
+        role = get_admin_role(user_id) if user_id else "super_admin"
+        keyboard = admin_panel_keyboard(demo_on, bot_active, role)
         return text, keyboard
     finally:
         session.close()

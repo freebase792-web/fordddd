@@ -40,7 +40,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # --- ADMIN FLOW: Show Admin Panel directly ---
         if is_admin(user_tg.id):
             from bot.handlers.admin_upload import get_admin_panel_details
-            text, keyboard = get_admin_panel_details()
+            text, keyboard = get_admin_panel_details(user_id=user_tg.id)
             await update.message.reply_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN,

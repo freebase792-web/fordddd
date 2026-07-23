@@ -224,14 +224,28 @@ async def _show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="⚠️ Use /start first!")
             return
 
-        msg = (
-            f"📊 *Our Relationship Status, {user.get_display_name()}!*\n"
-            f"{'─' * 25}\n"
-            f"🔥 Attachment Level: *Obsessed* 😏\n"
-            f"🗓️ Daily Visits: *{user.streak_count} days in a row* (don't leave me hanging! 🥺)\n"
-            f"👥 Friends Dragged In: *{user.referral_count}*\n"
-            f"\n💡 _Keep visiting and dragging friends in to show your dedication!_"
+        downloaded_emoji = "✅" if user.downloaded_apk else "❌"
+        stats_intro = f"📊 *Our Relationship Status, {user.get_display_name()}!*\n"
+        stats_intro += f"{'─' * 25}\n"
+
+        session2 = Session()
+        try:
+            total_downloads = session2.query(Analytics).filter_by(event="apk_download").count()
+        finally:
+            session2.close()
+
+        if user.downloaded_apk:
+            stats_intro += f"📱 APK Downloaded: *Yes* {downloaded_emoji}\n"
+        else:
+            stats_intro += f"📱 APK Downloaded: *Not yet* — tap 📱 Download APK below!\n"
+        stats_intro += (
+            f"👥 Total APK Downloads: *{total_downloads} users*\n"
+            f"🔥 Visits Streak: *{user.streak_count} days*\n"
+            f"👥 Friends Invited: *{user.referral_count}*\n"
+            f"💎 XP Points: *{user.xp_points}*\n"
+            f"\n💡 _Keep visiting and sharing to earn more rewards!_"
         )
+        msg = stats_intro
 
         await context.bot.send_message(
             chat_id=chat_id,

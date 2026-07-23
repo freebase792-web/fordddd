@@ -117,10 +117,8 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Error sending content item {item.id}: {e}")
                 continue
 
-        # Show action buttons (APK download + extras)
         apk_version = active_apk.version if active_apk else None
         apk_button_text = get_config("apk_button_text", "⬇️ Download App")
-        # Dynamically load the admin-configured demo closing message from database config
         demo_tpl = get_config(
             "demo_closing_text",
             "✨ *There you go, {name}!*\n\n"
@@ -137,6 +135,21 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         track_message(context, msg)
 
+        if active_apk and not user.downloaded_apk:
+            total_downloads = session.query(Analytics).filter_by(event="apk_download").count()
+            reminder_text = (
+                f"📱 *Don't miss out!*\n\n"
+                f"👥 *{total_downloads} users* have already downloaded the APK.\n"
+                f"💎 Get *+{calculate_xp_for_event('download_apk') * 2} XP* bonus on your first download!\n\n"
+                f"👇 Tap the button below to get it now."
+            )
+            reminder_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=reminder_text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            track_message(context, reminder_msg)
+
     except Exception as e:
         logger.error(f"Error in deliver_content: {e}", exc_info=True)
     finally:
@@ -144,13 +157,12 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_apk_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send the latest APK file to the user."""
+    """Send the latest APK file to the user with social proof and install guide."""
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
     session = Session()
     try:
-        # Always get the latest active APK
         active_apk = (
             session.query(Content)
             .filter_by(is_active=True, content_type="apk")
@@ -165,46 +177,90 @@ async def send_apk_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             track_message(context, msg)
             return
-
-        # Log analytics
         user = session.get(User, user_id)
+
+        total_downloads = session.query(Analytics).filter_by(event="apk_download").count()
+        is_first_download = user and not user.downloaded_apk
+
         if user:
-            user.xp_points += calculate_xp_for_event("download_apk")
+            if not user.downloaded_apk:
+                user.downloaded_apk = True
+                bonus_xp = calculate_xp_for_event("download_apk") * 2
+                user.xp_points += bonus_xp
+                if user.referrer_id:
+                    referrer = session.get(User, user.referrer_id)
+                    if referrer:
+                        ref_bonus = calculate_xp_for_event("referral_joined")
+                        referrer.xp_points += ref_bonus
+                        try:
+                            await context.bot.send_message(
+                                chat_id=user.referrer_id,
+                                text=(
+                                    f"🎉 *Your referral just downloaded the APK!*\n"
+                                    f"You earned *+{ref_bonus} XP* 💎"
+                                ),
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        except Exception:
+                            pass
             user.last_active = datetime.utcnow()
         session.add(Analytics(user_id=user_id, event="apk_download",
                               metadata_={"version": active_apk.version}))
         session.commit()
 
-        caption_parts = [f"📱 *{active_apk.file_name or 'App'}*"]
-        if active_apk.version:
-            caption_parts.append(f"📌 Version: *{active_apk.version}*")
-        if active_apk.changelog:
-            caption_parts.append(f"\n📋 *What's new:*\n{active_apk.changelog}")
-        caption_parts.append("\n⬇️ Tap to install!")
-        caption = "\n".join(caption_parts)
+        social_proof = f"👥 *{total_downloads + 1} users* have downloaded this APK"
+        caption_parts = [
+            f"📱 *{active_apk.file_name or 'App'}*",
+            f"📌 Version: *{active_apk.version}*" if active_apk.version else "",
+            f"\n📋 *What's new:*\n{active_apk.changelog}" if active_apk.changelog else "",
+            f"\n{social_proof}",
+            "\n⬇️ *Tap the file below to install!*"
+        ]
+        caption = "\n".join(p for p in caption_parts if p)
 
-        # Deliver App Icon if set
         app_icon_id = get_config("apk_icon_file_id", "")
         if app_icon_id:
             try:
                 icon_msg = await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=app_icon_id,
-                    caption="📦 *Preparing app installation...*",
+                    chat_id=chat_id, photo=app_icon_id,
+                    caption="📦 *Preparing your download...*",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 track_message(context, icon_msg)
-            except Exception as icon_err:
-                logger.error(f"Failed to send App Icon: {icon_err}")
+            except Exception:
+                pass
+
+        xp_bonus_msg = ""
+        if is_first_download and user:
+            xp_bonus_msg = (
+                f"\n\n🎁 *First download bonus!* +{calculate_xp_for_event('download_apk') * 2} XP 💎"
+            )
+
+        await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
 
         doc_msg = await context.bot.send_document(
             chat_id=chat_id,
             document=active_apk.file_id,
-            caption=caption,
+            caption=caption + xp_bonus_msg,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=back_to_content_keyboard(),
         )
         track_message(context, doc_msg)
+
+        install_guide = get_config(
+            "install_guide_text",
+            "📲 *How to Install the APK:*\n\n"
+            "1. Tap the file above to download\n"
+            "2. Open the downloaded file\n"
+            "3. Tap *Install* (allow from unknown sources if prompted)\n"
+            "4. Open the app and enjoy! 🚀\n\n"
+            "💡 *Need help?* Just tap /start anytime!"
+        )
+        guide_msg = await context.bot.send_message(
+            chat_id=chat_id, text=install_guide,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        track_message(context, guide_msg)
 
     except Exception as e:
         logger.error(f"Error in send_apk_to_user: {e}", exc_info=True)
