@@ -11,6 +11,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 
 from bot.models.database import Session, Content, BotConfig, set_config, get_config, User, Broadcast, Analytics, fb_request
 
@@ -56,6 +57,39 @@ async def _make_sub_admin(message, target_id, target_name, target_username, adde
         f"Tell them to send /admin to access the panel.",
         parse_mode=ParseMode.MARKDOWN
     )
+
+
+async def _safe_edit(query, text, **kwargs):
+    try:
+        await query.edit_message_text(text, **kwargs)
+    except BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            await query.answer()
+        else:
+            raise
+
+
+async def _remove_sub_admin_render(query, user_id, chat_id):
+    fb_request("PUT", f"sub_admins/{user_id}", {"is_active": False})
+    await query.answer("Sub-admin removed.")
+    sub_admin_data = fb_request("GET", "sub_admins") or {}
+    msg_lines = ["👥 *Sub Admins:*\n"]
+    keyboard_buttons = []
+    if sub_admin_data and isinstance(sub_admin_data, dict):
+        for tid, info in sub_admin_data.items():
+            if info and info.get("is_active"):
+                name = info.get("name", "Unknown")
+                username = info.get("username", "")
+                label = f"{name} (@{username})" if username else name
+                msg_lines.append(f"• {label}")
+                keyboard_buttons.append([
+                    InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"admin_remove_sub_admin_{tid}")
+                ])
+    else:
+        msg_lines.append("_No sub-admins appointed._")
+    keyboard_buttons.append([InlineKeyboardButton("➕ Add Sub Admin", callback_data="admin_prompt_add_sub_admin")])
+    keyboard_buttons.append([InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")])
+    await _safe_edit(query, "\n".join(msg_lines), parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard_buttons))
 
 
 async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -384,7 +418,7 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = Session()
 
     try:
-        # Check if super admin is adding a sub-admin (via forward or paste user ID)
+        # Check if super admin is adding a sub-admin (via forward, paste ID, or @username)
         if context.user_data.get("awaiting_sub_admin_forward"):
             context.user_data.pop("awaiting_sub_admin_forward", None)
             fwd_from = message.forward_from if hasattr(message, 'forward_from') else None
@@ -400,11 +434,23 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 target_id = int(text)
                 target_name = "Sub Admin (ID)"
                 target_username = ""
-
-            if not target_id:
+            elif text.startswith("@"):
+                username = text.lstrip("@")
+                try:
+                    chat = await context.bot.get_chat("@" + username)
+                    target_id = chat.id
+                    target_name = chat.first_name or username
+                    target_username = username
+                except Exception:
+                    await message.reply_text(
+                        "❌ Could not find a user with that username. "
+                        "Make sure the username is correct and they have started this bot."
+                    )
+                    return
+            else:
                 await message.reply_text(
-                    "❌ Forward a message from the user, or paste their Telegram User ID.\n\n"
-                    "📌 To get someone's ID: forward their message to @userinfobot"
+                    "❌ Please forward a message from the user, paste their numeric User ID, "
+                    "or send their @username."
                 )
                 return
 
@@ -819,11 +865,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 set_config("bot_enabled", "false" if current else "true")
 
             text, keyboard = get_admin_panel_details(user_id=user.id)
-            await query.edit_message_text(
-                text,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=keyboard
-            )
+            await _safe_edit(query, text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
         elif data == "admin_how_to_use":
             guide_text = (
@@ -981,34 +1023,38 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             threading.Thread(target=run_custom_bg, daemon=True).start()
             await query.edit_message_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
 
+        elif data.startswith("admin_remove_sub_admin_"):
+            remove_id = int(data.split("_")[-1])
+            await _remove_sub_admin_render(query, remove_id, chat_id)
+
         elif data == "admin_manage_sub_admins":
             if get_admin_role(user.id) != "super_admin":
                 await context.bot.send_message(chat_id=chat_id, text="⛔ Only super admin can manage admins.")
                 return
             sub_admin_data = fb_request("GET", "sub_admins") or {}
             msg_lines = ["👥 *Sub Admins:*\n"]
+            keyboard_buttons = []
             if sub_admin_data and isinstance(sub_admin_data, dict):
                 for tid, info in sub_admin_data.items():
                     if info and info.get("is_active"):
-                        msg_lines.append(f"• {info.get('name', 'Unknown')} (@{info.get('username', '—')})")
+                        name = info.get("name", "Unknown")
+                        username = info.get("username", "")
+                        label = f"{name} (@{username})" if username else name
+                        msg_lines.append(f"• {label}")
+                        keyboard_buttons.append([
+                            InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"admin_remove_sub_admin_{tid}")
+                        ])
             else:
                 msg_lines.append("_No sub-admins appointed._")
-
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Add Sub Admin", callback_data="admin_prompt_add_sub_admin")],
-                [InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")],
-            ])
-            await query.edit_message_text(
-                "\n".join(msg_lines),
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=keyboard
-            )
+            keyboard_buttons.append([InlineKeyboardButton("➕ Add Sub Admin", callback_data="admin_prompt_add_sub_admin")])
+            keyboard_buttons.append([InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")])
+            await _safe_edit(query, "\n".join(msg_lines), parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard_buttons))
 
         elif data == "admin_prompt_add_sub_admin":
             if get_admin_role(user.id) != "super_admin":
                 return
             context.user_data["awaiting_sub_admin_forward"] = True
-            await query.edit_message_text(
+            await _safe_edit(query,
                 "📤 *Forward me a message from the user you want to appoint as Sub Admin.*\n\n"
                 "Any message they sent to this bot will work.",
                 parse_mode=ParseMode.MARKDOWN
@@ -1017,15 +1063,11 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         elif data == "admin_back_to_panel":
             context.user_data.clear()
             text, keyboard = get_admin_panel_details(user_id=user.id)
-            await query.edit_message_text(
-                text,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=keyboard
-            )
+            await _safe_edit(query, text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
         elif data == "admin_cancel":
             context.user_data.clear()
-            await query.edit_message_text("❌ Operations cancelled.")
+            await _safe_edit(query, "❌ Operations cancelled.")
 
     except Exception as e:
         session.rollback()
