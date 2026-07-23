@@ -96,15 +96,16 @@ def start_bot_engine():
         except Exception as err:
             logging.warning(f"❌ Failed to connect to Telegram setWebhook API: {err}")
 
-        # Initialize the shared Application on the persistent event loop
-        from admin.app import _bot_loop
-        from bot.main import init_application
-        try:
-            _bot_loop.run_until_complete(init_application())
-        except Exception as e:
-            logging.warning(f"Application init warning: {e}")
-
 start_bot_engine()
+
+# ── Initialize shared bot Application on background event loop ─────
+from admin.app import _start_bot_event_loop, _run_async
+from bot.main import init_application
+_start_bot_event_loop()
+try:
+    _run_async(init_application())
+except Exception as e:
+    logging.warning(f"Application init warning: {e}")
 
 # ── Keep Alive Self-Pinger (Bypasses Render Free Tier Sleep) ────────
 def run_keep_alive():
