@@ -27,7 +27,12 @@ def fb_request(method, path, data=None, timeout=10):
         req = urllib.request.Request(url, data=req_data, method=method)
         req.add_header("Content-Type", "application/json")
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            body = response.read().decode("utf-8")
+            if not body:
+                return None
+            return json.loads(body)
+    except json.JSONDecodeError:
+        return None
     except Exception as e:
         logger.error(f"Firebase RTDB Error on {method} {path}: {e}")
         return None
