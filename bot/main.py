@@ -6,6 +6,7 @@ Runs on a single Render web service process.
 import os
 import logging
 import asyncio
+import threading
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -32,6 +33,7 @@ PORT = int(os.environ.get("PORT", 8000))
 
 # Build the PTB application (shared across requests)
 _ptb_app: Application = None
+_ptb_app_lock = threading.Lock()
 
 
 def register_handlers(app: Application) -> None:
@@ -75,12 +77,14 @@ def register_handlers(app: Application) -> None:
 def get_ptb_app() -> Application:
     global _ptb_app
     if _ptb_app is None:
-        _ptb_app = (
-            Application.builder()
-            .token(BOT_TOKEN)
-            .build()
-        )
-        register_handlers(_ptb_app)
+        with _ptb_app_lock:
+            if _ptb_app is None:
+                _ptb_app = (
+                    Application.builder()
+                    .token(BOT_TOKEN)
+                    .build()
+                )
+                register_handlers(_ptb_app)
     return _ptb_app
 
 
