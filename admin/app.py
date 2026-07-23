@@ -22,6 +22,8 @@ from bot.models.database import (
     Session as DBSession, User, Content, Question, Broadcast,
     Analytics, BotConfig, get_config, set_config, init_db, fb_request
 )
+from bot.main import get_ptb_app
+from bot.models.database import get_cached, set_cache
 
 logger = logging.getLogger(__name__)
 
@@ -119,18 +121,18 @@ def dashboard():
             .all()
         )
 
-        # Daily joins (last 7 days)
-        from sqlalchemy import func, cast, Date
-        daily_stats = (
-            db.query(
-                cast(User.joined_at, Date).label("day"),
-                func.count(User.id).label("count")
-            )
-            .group_by(cast(User.joined_at, Date))
-            .order_by(cast(User.joined_at, Date).desc())
-            .limit(7)
-            .all()
-        )
+        # Daily joins (last 7 days) — cached 60s to avoid re-fetching 20k users
+        daily_stats = get_cached("dashboard:daily_stats")
+        if daily_stats is None:
+            all_users = db.query(User).all()
+            daily_stats_dict = {}
+            for u in all_users:
+                if u.joined_at:
+                    day = u.joined_at.date() if hasattr(u.joined_at, 'date') else u.joined_at
+                    daily_stats_dict[day] = daily_stats_dict.get(day, 0) + 1
+            sorted_days = sorted(daily_stats_dict.items(), key=lambda x: x[0], reverse=True)[:7]
+            daily_stats = [(day, count) for day, count in sorted_days]
+            set_cache("dashboard:daily_stats", daily_stats)
 
         bot_enabled = get_config("bot_enabled", "true") == "true"
         active_apk = db.query(Content).filter_by(is_active=True, content_type="apk").order_by(Content.id.desc()).first()
@@ -709,90 +711,26 @@ def settings():
     return render_template("admin/settings.html", configs=configs)
 
 
-# Cache bot user details and user_data globally to bypass get_me() requests and persist state across requests
-_cached_bot_user = None
-_global_user_data = {}
-
 @app.route(f"/webhook/<token>", methods=["POST"])
 def telegram_webhook(token):
     """Receive updates from Telegram via webhook."""
     if token != BOT_TOKEN:
         return "Forbidden", 403
 
-    from telegram import Update, User as TGUser
-    from telegram.ext import Application
-    from bot.main import register_handlers
+    from telegram import Update
 
     data = request.get_json(force=True)
+    ptb_app = get_ptb_app()
 
-    # Process the update in a background thread to return 200 OK instantly to Telegram.
-    # This prevents Gunicorn from blocking on slow API calls and eliminates all lag!
-    def run_update_in_background(update_data):
-        async def _handle_update_async():
-            global _cached_bot_user, _global_user_data
-            
-            # Create a fresh Application instance for this thread's loop
-            ptb_app = (
-                Application.builder()
-                .token(BOT_TOKEN)
-                .build()
-            )
-            register_handlers(ptb_app)
+    try:
+        async def process():
+            update = Update.de_json(data, ptb_app.bot)
+            await ptb_app.process_update(update)
 
-            # Restore the user_data state mapping using the raw internal dict
-            ptb_app._user_data.update(_global_user_data)
+        asyncio.run(process())
+    except Exception as e:
+        logger.error(f"Error processing update: {e}", exc_info=True)
 
-            # Inject the cached bot user to bypass the get_me() HTTP request
-            if _cached_bot_user:
-                ptb_app.bot._bot_user = _cached_bot_user
-
-            try:
-                await ptb_app.initialize()
-                
-                # Set Menu Button commands programmatically with user/admin scope separation
-                from telegram import BotCommandScopeDefault, BotCommandScopeChat
-                try:
-                    # 1. Regular users only see the Start command
-                    await ptb_app.bot.set_my_commands(
-                        [("start", "🚀 Start Bot")],
-                        scope=BotCommandScopeDefault()
-                    )
-                    # 2. Only the Admin ID sees the Admin Panel command
-                    from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
-                    if ADMIN_TELEGRAM_ID:
-                        await ptb_app.bot.set_my_commands(
-                            [
-                                ("start", "🚀 Start Bot"),
-                                ("admin", "⚡ Admin Control Panel")
-                            ],
-                            scope=BotCommandScopeChat(chat_id=ADMIN_TELEGRAM_ID)
-                        )
-                except Exception as cmd_err:
-                    logger.error(f"Failed to set scoped bot commands: {cmd_err}")
-
-                # Cache the bot user for future requests
-                if not _cached_bot_user and ptb_app.bot._bot_user:
-                    _cached_bot_user = ptb_app.bot._bot_user
-
-                update = Update.de_json(update_data, ptb_app.bot)
-                await ptb_app.process_update(update)
-            except Exception as thread_err:
-                logger.error(f"Error processing update in background: {thread_err}", exc_info=True)
-            finally:
-                # Save the updated user_data mapping back to the global process store
-                _global_user_data.clear()
-                _global_user_data.update(ptb_app._user_data)
-                
-                # Cleanly shutdown the HTTP client connections for this thread's loop
-                await ptb_app.shutdown()
-
-        try:
-            asyncio.run(_handle_update_async())
-        except Exception as loop_err:
-            logger.error(f"Failed to run event loop in background: {loop_err}", exc_info=True)
-
-    # Start the daemon thread and return instantly
-    threading.Thread(target=run_update_in_background, args=(data,), daemon=True).start()
     return "ok", 200
 
 
