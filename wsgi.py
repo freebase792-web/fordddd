@@ -96,13 +96,11 @@ def start_bot_engine():
         except Exception as err:
             logging.warning(f"❌ Failed to connect to Telegram setWebhook API: {err}")
 
-        # Initialize the shared Application for webhook mode
+        # Initialize the shared Application on the persistent event loop
+        from admin.app import _bot_loop
         from bot.main import init_application
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(init_application())
-            loop.close()
+            _bot_loop.run_until_complete(init_application())
         except Exception as e:
             logging.warning(f"Application init warning: {e}")
 
