@@ -16,18 +16,49 @@ FIREBASE_SECRET = "SwPMWuSbhRicoEi3XiJycMDgu0bxLvyUeqLLNrM5"
 logger = logging.getLogger(__name__)
 
 
-def fb_request(method, path, data=None):
+def fb_request(method, path, data=None, timeout=10):
     """Make HTTP REST API request to Firebase RTDB."""
-    url = f"{FIREBASE_URL}/{path.lstrip('/')}.json?auth={FIREBASE_SECRET}"
+    if "?" in path:
+        url = f"{FIREBASE_URL}/{path.lstrip('/')}&auth={FIREBASE_SECRET}"
+    else:
+        url = f"{FIREBASE_URL}/{path.lstrip('/')}.json?auth={FIREBASE_SECRET}"
     try:
         req_data = json.dumps(data).encode("utf-8") if data is not None else None
         req = urllib.request.Request(url, data=req_data, method=method)
         req.add_header("Content-Type", "application/json")
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except Exception as e:
         logger.error(f"Firebase RTDB Error on {method} {path}: {e}")
         return None
+
+
+_query_cache = {}
+CACHE_TTL = 10
+
+
+def _cache_key(model_class, filters, suffix=""):
+    return f"{model_class.__name__}:{json.dumps(filters, default=str)}:{suffix}"
+
+
+def get_cached(key):
+    entry = _query_cache.get(key)
+    if entry and time.time() - entry["ts"] < CACHE_TTL:
+        return entry["val"]
+    return None
+
+
+def set_cache(key, val):
+    _query_cache[key] = {"ts": time.time(), "val": val}
+
+
+def clear_cache(model_class=None):
+    global _query_cache
+    if model_class:
+        prefix = model_class.__name__ + ":"
+        _query_cache = {k: v for k, v in _query_cache.items() if not k.startswith(prefix)}
+    else:
+        _query_cache = {}
 
 
 def parse_date(date_str):
@@ -221,6 +252,7 @@ class Broadcast:
     status = FieldDescriptor("status")
     sent_count = FieldDescriptor("sent_count")
     failed_count = FieldDescriptor("failed_count")
+    total_users = FieldDescriptor("total_users")
     created_at = FieldDescriptor("created_at")
     completed_at = FieldDescriptor("completed_at")
 
@@ -235,6 +267,7 @@ class Broadcast:
         self.status = kwargs.get("status", "pending")
         self.sent_count = kwargs.get("sent_count", 0)
         self.failed_count = kwargs.get("failed_count", 0)
+        self.total_users = kwargs.get("total_users", 0)
         self.created_at = parse_date(kwargs.get("created_at")) or datetime.utcnow()
         self.completed_at = parse_date(kwargs.get("completed_at"))
 
@@ -250,6 +283,7 @@ class Broadcast:
             "status": self.status,
             "sent_count": self.sent_count,
             "failed_count": self.failed_count,
+            "total_users": self.total_users,
             "created_at": format_date(self.created_at),
             "completed_at": format_date(self.completed_at)
         }
@@ -330,6 +364,7 @@ class FirebaseQuery:
         self.session = session
         self._filters = {}
         self._limit = None
+        self._offset = 0
 
     def filter_by(self, **kwargs):
         self._filters.update(kwargs)
@@ -382,10 +417,53 @@ class FirebaseQuery:
         self._limit = limit_val
         return self
 
+    def offset(self, offset_val):
+        self._offset = offset_val
+        return self
+
     def _fetch_all(self):
         path = self.model_class.__name__.lower() + "s"
-        data = fb_request("GET", path) or {}
-        
+
+        # For User queries, fetch IDs first (shallow) then fetch only needed records
+        if self.model_class == User and (self._limit or self._offset or not self._filters):
+            ids_data = fb_request("GET", path + "?shallow=true", timeout=15) or {}
+            if isinstance(ids_data, dict):
+                all_ids = []
+                for k, v in ids_data.items():
+                    if v is not None:
+                        try:
+                            all_ids.append(int(k) if k.isdigit() else k)
+                        except ValueError:
+                            all_ids.append(k)
+                all_ids.sort(reverse=True)
+                window = all_ids
+                if self._offset:
+                    window = window[self._offset:]
+                if self._limit:
+                    window = window[:self._limit]
+                results = []
+                for uid in window:
+                    user_path = f"users/{uid}"
+                    user_data = fb_request("GET", user_path, timeout=10)
+                    if user_data:
+                        user_data["id"] = uid if isinstance(uid, int) else uid
+                        obj = self.model_class(**user_data)
+                        results.append(obj)
+                filtered = []
+                for item in results:
+                    match = True
+                    for fk, fv in self._filters.items():
+                        if fk.startswith("_"):
+                            continue
+                        if getattr(item, fk, None) != fv:
+                            match = False
+                            break
+                    if match:
+                        filtered.append(item)
+                return filtered
+
+        data = fb_request("GET", path, timeout=15) or {}
+
         if isinstance(data, list):
             items_iterator = [(str(idx), val) for idx, val in enumerate(data) if val is not None]
         elif isinstance(data, dict):
@@ -399,7 +477,7 @@ class FirebaseQuery:
                 v["id"] = int(k) if k.isdigit() else k
                 obj = self.model_class(**v)
                 results.append(obj)
-        
+
         filtered = []
         for item in results:
             match = True
@@ -418,15 +496,31 @@ class FirebaseQuery:
                     match = False
             if match:
                 filtered.append(item)
-        
+
         if self.model_class == Content:
             filtered.sort(key=lambda x: getattr(x, "order_index", 999))
         elif self.model_class == Broadcast:
             filtered.sort(key=lambda x: getattr(x, "created_at", datetime.min), reverse=True)
-            
+
+        if self._offset:
+            filtered = filtered[self._offset:]
         if self._limit:
             filtered = filtered[:self._limit]
         return filtered
+
+    def _fetch_ids_only(self):
+        """Fetch just the keys/IDs without full records (shallow)."""
+        path = self.model_class.__name__.lower() + "s?shallow=true"
+        data = fb_request("GET", path) or {}
+        if not isinstance(data, dict):
+            return []
+        ids = []
+        for k in data:
+            try:
+                ids.append(int(k) if k.isdigit() else k)
+            except ValueError:
+                pass
+        return ids
 
     def all(self):
         return self._fetch_all()
@@ -436,7 +530,17 @@ class FirebaseQuery:
         return res[0] if res else None
 
     def count(self):
-        return len(self._fetch_all())
+        ck = _cache_key(self.model_class, self._filters, "count")
+        cached = get_cached(ck)
+        if cached is not None:
+            return cached
+        if not self._filters:
+            ids = self._fetch_ids_only()
+            val = len(ids)
+        else:
+            val = len(self._fetch_all())
+        set_cache(ck, val)
+        return val
 
     def update(self, values):
         items = self._fetch_all()
@@ -467,23 +571,25 @@ class FirebaseSession:
             self.dirty.append(obj)
 
     def delete(self, obj):
-        """Delete an object from Firebase immediately."""
         path_prefix = obj.__class__.__name__.lower() + "s"
         path = f"{path_prefix}/{obj.id}"
         fb_request("DELETE", path)
+        clear_cache(obj.__class__)
 
     def commit(self):
+        changed_classes = set()
         for obj in self.dirty:
             path_prefix = obj.__class__.__name__.lower() + "s"
             if getattr(obj, "id", None) is None:
                 obj.id = int(time.time() * 1000)
-            
             path = f"{path_prefix}/{obj.id}"
             fb_request("PUT", path, obj.to_dict())
+            changed_classes.add(obj.__class__)
         self.dirty.clear()
+        for cls in changed_classes:
+            clear_cache(cls)
 
     def flush(self):
-        """Intermediate flush emulated by commit."""
         self.commit()
 
     def rollback(self):
@@ -491,6 +597,29 @@ class FirebaseSession:
 
     def close(self):
         self.dirty.clear()
+
+    def get_user_ids(self, only_active=True):
+        """Get all user IDs from Firebase using shallow=true (no full records)."""
+        data = fb_request("GET", "users?shallow=true") or {}
+        if not isinstance(data, dict):
+            return []
+        ids = []
+        for k, v in data.items():
+            if v is not None:
+                try:
+                    ids.append(int(k) if k.isdigit() else k)
+                except ValueError:
+                    pass
+        return ids
+
+    def get_users_by_ids(self, ids):
+        """Fetch multiple users by their IDs in batch (one request per user)."""
+        users = []
+        for uid in ids:
+            u = self.get(User, uid)
+            if u:
+                users.append(u)
+        return users
 
 
 # Export Session interface to match sessionmaker(bind=engine)
