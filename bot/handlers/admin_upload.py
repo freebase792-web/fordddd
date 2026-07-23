@@ -348,6 +348,18 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     message = update.message
     text = message.text.strip()
+
+    # Passthrough for reply keyboard buttons — route to user handler
+    known_buttons = [
+        "📱 Download APK", "🌸 See Demo", "🎁 See Content Again",
+        "🌟 Actually, I changed my mind!",
+        "🔗 Share with a friend", "🔗 Get Referral Link",
+    ]
+    if text in known_buttons:
+        from bot.handlers.callbacks import user_text_handler
+        await user_text_handler(update, context)
+        return
+
     session = Session()
 
     try:
@@ -623,8 +635,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             content_type = context.user_data.pop("pending_content_type", "document")
             caption = context.user_data.pop("pending_caption", "")
             
-            from sqlalchemy import func
-            max_order = session.query(func.max(Content.order_index)).scalar() or 0
+            max_order = 0
+            for item in session.query(Content).all():
+                if item.order_index and item.order_index > max_order:
+                    max_order = item.order_index
             
             new_item = Content(
                 content_type=content_type,

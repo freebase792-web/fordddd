@@ -268,12 +268,12 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = message.text.strip()
 
-    if text == "📱 Download APK":
+    if "Download APK" in text or "download apk" in text:
         await send_apk_to_user(update, context)
-    elif text == "🌸 See Demo" or text == "🎁 See Content Again":
+    elif "Demo" in text or "demo" in text or "See Content" in text or "Content Again" in text:
         await deliver_content(update, context)
-    elif text == "🌟 Actually, I changed my mind!":
+    elif "changed my mind" in text.lower():
         await _handle_yes(update, context)
-    elif text == "🔗 Share with a friend" or text == "🔗 Get Referral Link":
+    elif "Share" in text or "Referral" in text or "Referral Link" in text or "share" in text:
         await _show_referral(update, context)
 
