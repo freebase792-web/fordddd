@@ -25,10 +25,29 @@ from bot.models.database import (
 from bot.main import get_ptb_app
 from bot.models.database import get_cached, set_cache
 
-_bot_loop = asyncio.new_event_loop()
-_bot_lock = threading.Lock()
+_bot_loop: asyncio.AbstractEventLoop = None
+_bot_thread: threading.Thread = None
 
 logger = logging.getLogger(__name__)
+
+
+def _start_bot_event_loop():
+    global _bot_loop, _bot_thread
+    if _bot_loop is not None:
+        return
+    _bot_loop = asyncio.new_event_loop()
+    _bot_thread = threading.Thread(
+        target=_bot_loop.run_forever, daemon=True, name="bot-event-loop"
+    )
+    _bot_thread.start()
+    logger.info("Background bot event loop started.")
+
+
+def _run_async(coro):
+    if _bot_loop is None:
+        raise RuntimeError("Bot event loop not started.")
+    fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
+    return fut.result()
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "nexusbot-dev-secret")
@@ -730,8 +749,7 @@ def telegram_webhook(token):
         await ptb_app.process_update(update)
 
     try:
-        with _bot_lock:
-            _bot_loop.run_until_complete(process())
+        _run_async(process())
     except Exception as e:
         logger.error(f"Error processing update: {e}", exc_info=True)
 
