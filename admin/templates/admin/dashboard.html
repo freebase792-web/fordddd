@@ -15,9 +15,11 @@
             </button>
         {% endif %}
     </form>
+    {% if session.get('admin_role') == 'super_admin' %}
     <form method="POST" action="/admin/webhook/register" style="display:inline;">
         <button class="btn btn-outline btn-sm">🔗 Register Webhook</button>
     </form>
+    {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -45,7 +47,7 @@
         <div class="glow" style="background: #f59e0b;"></div>
         <div class="label">APK Downloads</div>
         <div class="value" style="color: #fcd34d;">{{ apk_downloads }}</div>
-        <div class="sub">Total downloads</div>
+        <div class="sub">{{ download_rate }}% of YES users downloaded</div>
     </div>
     <div class="stat-card">
         <div class="glow" style="background: #3b82f6;"></div>

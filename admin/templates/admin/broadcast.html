@@ -158,10 +158,11 @@
                                 <div class="progress">
                                     <div class="progress-bar" style="width:{{ pct }}%"></div>
                                 </div>
-                                <span style="font-size:11px; color:var(--text3);">
-                                    {{ b.sent_count }}/{{ b.total_users }}
-                                    {% if b.failed_count %} · ❌{{ b.failed_count }}{% endif %}
-                                </span>
+                        <span style="font-size:11px; color:var(--text3);">
+                            {{ b.sent_count }}/{{ b.total_users }}
+                            {% if b.failed_count %} · ❌{{ b.failed_count }}{% endif %}
+                        </span>
+                        <span class="counter-detail" style="font-size:10px; color:var(--text3); display:block;"></span>
                             </div>
                         </td>
                         <td>
@@ -223,15 +224,25 @@ document.getElementById('has_apk_button').addEventListener('change', function() 
 function pollProgress() {
     document.querySelectorAll('[data-broadcast-id]').forEach(el => {
         const id = el.dataset.broadcastId;
+        const row = el.closest('tr');
+        const progressBar = row ? row.querySelector('.progress-bar') : null;
+        const counterSpan = row ? row.querySelector('.counter-detail') : null;
+
         fetch(`/admin/broadcast/status/${id}`)
             .then(r => r.json())
             .then(data => {
+                const pct = data.progress || 0;
+                if (progressBar) progressBar.style.width = pct + '%';
+                if (counterSpan) {
+                    const remaining = Math.max(0, data.total - data.sent - data.failed);
+                    counterSpan.textContent = `${data.sent} sent, ${data.failed} blocked, ${remaining} left`;
+                }
                 if (data.status === 'done' || data.status === 'failed') {
                     setTimeout(() => location.reload(), 1000);
                 }
             }).catch(() => {});
     });
 }
-setInterval(pollProgress, 3000);
+setInterval(pollProgress, 2000);
 </script>
 {% endblock %}

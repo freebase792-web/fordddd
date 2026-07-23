@@ -224,6 +224,12 @@
         <a href="/admin/users" class="nav-item {% if '/users' in request.path %}active{% endif %}">
             <span class="icon">👥</span> Users
         </a>
+        {% if session.get('admin_role') == 'super_admin' %}
+        <div class="nav-section">Admin Management</div>
+        <a href="/admin/admins" class="nav-item {% if '/admins' in request.path %}active{% endif %}">
+            <span class="icon">🔐</span> Manage Admins
+        </a>
+        {% endif %}
         <div class="nav-section">System</div>
         <a href="/admin/settings" class="nav-item {% if '/settings' in request.path %}active{% endif %}">
             <span class="icon">⚙️</span> Settings
