@@ -45,7 +45,7 @@ def _start_bot_event_loop():
 
 def _run_async(coro):
     if _bot_loop is None:
-        raise RuntimeError("Bot event loop not started.")
+        _start_bot_event_loop()
     fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
     return fut.result()
 
@@ -743,6 +743,7 @@ def telegram_webhook(token):
 
     data = request.get_json(force=True)
     ptb_app = get_ptb_app()
+    _start_bot_event_loop()
 
     async def process():
         update = Update.de_json(data, ptb_app.bot)
