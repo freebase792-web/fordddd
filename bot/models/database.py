@@ -607,7 +607,9 @@ class FirebaseSession:
             if getattr(obj, "id", None) is None:
                 obj.id = int(time.time() * 1000)
             path = f"{path_prefix}/{obj.id}"
-            fb_request("PUT", path, obj.to_dict())
+            result = fb_request("PUT", path, obj.to_dict())
+            if result is None:
+                raise RuntimeError(f"Firebase write failed for {path}")
             changed_classes.add(obj.__class__)
         self.dirty.clear()
         for cls in changed_classes:
