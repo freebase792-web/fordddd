@@ -5,7 +5,7 @@ after they answer YES. Fully driven by admin-configured content.
 """
 import logging
 from datetime import datetime
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -110,8 +110,31 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     track_message(context, msg)
 
                 elif item.content_type == "apk":
-                    # APK is shown as a button below — skip direct send here
                     continue
+
+                elif item.content_type == "link":
+                    link_kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(item.link_text or "🔗 Open Link", url=item.link_url or item.text_content)]
+                    ])
+                    msg = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=item.caption or "🔗 *Click the button below:*",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=link_kb,
+                    )
+                    track_message(context, msg)
+                    continue
+
+                if item.link_url:
+                    link_kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(item.link_text or "🔗 Open Link", url=item.link_url)]
+                    ])
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="🔗 *Related link:*",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=link_kb,
+                    )
 
             except Exception as e:
                 logger.error(f"Error sending content item {item.id}: {e}")

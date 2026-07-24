@@ -270,10 +270,6 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.pop("awaiting_demo_file", None)
         session = Session()
         try:
-            # Archive old demo content
-            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
-            
-            # Save new demo file
             new_demo = Content(
                 content_type=content_type,
                 file_id=file_id,
@@ -285,13 +281,12 @@ async def admin_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             session.add(new_demo)
             session.commit()
             
-            # Set welcome GIF/animation if it is an animation
             if content_type == "image" and file_name.endswith(".gif"):
                 set_config("welcome_gif_id", file_id)
 
             await message.reply_text(
-                f"🌸 *Demo Content Updated successfully!*\n\n"
-                f"Saved a *{content_type}* file as the active user demo view.",
+                f"🌸 *Demo Content Added successfully!*\n\n"
+                f"Saved a *{content_type}* file as additional demo content.",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -403,6 +398,7 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     message = update.message
     text = message.text.strip()
+    chat_id = update.effective_chat.id
 
     # Passthrough for reply keyboard buttons — route to user handler
     known_buttons = [
@@ -660,10 +656,120 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await message.reply_text(f"✅ Demo closing message updated successfully to:\n\n{text}", parse_mode=ParseMode.MARKDOWN)
             return
 
+        # 9. Handling demo link URL + label
+        if context.user_data.get("awaiting_demo_link"):
+            context.user_data.pop("awaiting_demo_link")
+            lines = text.split("\n", 1)
+            url = lines[0].strip()
+            label = lines[1].strip() if len(lines) > 1 else "🔗 Open Link"
+            if not url.startswith("http"):
+                await message.reply_text("❌ Invalid URL. Must start with http:// or https://")
+                return
+            new_link = Content(
+                content_type="link",
+                link_url=url,
+                link_text=label,
+                text_content=url,
+                caption="🔗 *Click below to open:*",
+                is_active=True,
+                order_index=999,
+            )
+            session.add(new_link)
+            session.commit()
+            await message.reply_text(
+                f"✅ *Demo Link added!*\n\n"
+                f"🔗 URL: `{url}`\n"
+                f"📌 Label: `{label}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # 10. Handling broadcast link URL + label
+        if context.user_data.get("awaiting_broadcast_link"):
+            if text.strip().lower() == "skip":
+                context.user_data.pop("awaiting_broadcast_link")
+                context.user_data["broadcast_link_url"] = None
+                context.user_data["broadcast_link_text"] = None
+            else:
+                lines = text.split("\n", 1)
+                url = lines[0].strip()
+                label = lines[1].strip() if len(lines) > 1 else "🔗 Open Link"
+                if not url.startswith("http"):
+                    await message.reply_text("❌ Invalid URL. Must start with http:// or https://")
+                    return
+                context.user_data.pop("awaiting_broadcast_link")
+                context.user_data["broadcast_link_url"] = url
+                context.user_data["broadcast_link_text"] = label
+            await _launch_broadcast(context, chat_id)
+            await message.reply_text("📲 *Broadcast started in background!* Sending to users...", parse_mode=ParseMode.MARKDOWN)
+            return
+
     except Exception as e:
         session.rollback()
         logger.error(f"Admin text config error: {e}", exc_info=True)
         await message.reply_text(f"❌ Error: {e}")
+    finally:
+        session.close()
+
+
+async def _launch_broadcast(context, chat_id):
+    """Build and launch a broadcast from stored context data."""
+    session = Session()
+    try:
+        has_apk = context.user_data.pop("broadcast_has_apk", False)
+        link_url = context.user_data.pop("broadcast_link_url", None)
+        link_text = context.user_data.pop("broadcast_link_text", None)
+        media_list = context.user_data.pop("awaiting_broadcast_media_list", None)
+
+        import json
+        if media_list:
+            bc_type = "multimedia"
+            bc_file_id = None
+            bc_caption = None
+            bc_text = json.dumps(media_list)
+        else:
+            bc_type = context.user_data.pop("broadcast_type", "text")
+            bc_file_id = context.user_data.pop("broadcast_file_id", None)
+            bc_caption = context.user_data.pop("broadcast_caption", None)
+            bc_text = context.user_data.pop("broadcast_text", None)
+
+        new_bc = Broadcast(
+            message_type=bc_type,
+            file_id=bc_file_id,
+            caption=bc_caption,
+            content_text=bc_text,
+            has_apk_button=has_apk,
+            apk_button_text="⬇️ Download App",
+            link_url=link_url,
+            link_text=link_text or "🔗 Open Link",
+            status="pending"
+        )
+        session.add(new_bc)
+        session.commit()
+        bc_id = new_bc.id
+
+        from bot.services.broadcast import execute_broadcast
+        import threading
+
+        def run_custom_bg():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(execute_broadcast(bc_id, context.bot.token))
+            except Exception as thread_err:
+                logger.error(f"Telegram thread broadcast error: {thread_err}")
+            finally:
+                loop.close()
+
+        threading.Thread(target=run_custom_bg, daemon=True).start()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error launching broadcast: {e}", exc_info=True)
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Broadcast error: {e}")
     finally:
         session.close()
 
@@ -721,9 +827,6 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             content_type = context.user_data.pop("pending_content_type", "document")
             caption = context.user_data.pop("pending_caption", "")
 
-            # Archive old demos
-            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
-
             new_demo = Content(
                 content_type=content_type,
                 file_id=file_id,
@@ -734,7 +837,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             session.add(new_demo)
             session.commit()
-            await query.edit_message_text(f"🌸 Demo content set successfully to the new *{content_type}* file.")
+            await query.edit_message_text(f"🌸 Demo content added successfully as new *{content_type}*.")
 
         elif data == "admin_prompt_set_apk":
             await context.bot.send_message(
@@ -794,10 +897,6 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ No items added to demo sequence. Cancelled.")
                 return
 
-            # Archive existing demo items
-            session.query(Content).filter(Content.content_type != "apk").update({"is_active": False})
-            
-            # Save new demo items
             for idx, item in enumerate(demo_list):
                 new_demo = Content(
                     content_type=item["content_type"],
@@ -811,7 +910,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 session.add(new_demo)
             session.commit()
             
-            await query.edit_message_text(f"🌸 *Demo sequence successfully updated with {len(demo_list)} items!*")
+            await query.edit_message_text(f"🌸 *Demo sequence updated with {len(demo_list)} new items!*")
 
         elif data == "admin_prompt_demo_msg":
             context.user_data["awaiting_demo_msg"] = True
@@ -820,6 +919,19 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 text=(
                     "✏️ *Please reply with the text to be shown AFTER the demo content delivery:*\n\n"
                     "💡 Use `{name}` in your text to dynamically replace it with the user's name (e.g. `✨ Enjoy the game, {name}!`)."
+                ),
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "admin_prompt_demo_link":
+            context.user_data["awaiting_demo_link"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🔗 *Please send the link URL and button label.*\n\n"
+                    "Format:\n"
+                    "`https://example.com\nButton Label`\n\n"
+                    "Or just the URL to use default label \"🔗 Open Link\"."
                 ),
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -955,6 +1067,19 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 ])
             )
 
+        elif data == "admin_prompt_broadcast_link":
+            context.user_data["awaiting_broadcast_link"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🔗 *Send the link URL and optional button label.*\n\n"
+                    "Format:\n"
+                    "`https://example.com\nButton Label`\n\n"
+                    "Or send just `skip` to continue without a link."
+                ),
+                parse_mode=ParseMode.MARKDOWN
+            )
+
         elif data == "admin_confirm_bc_media_done":
             media_list = context.user_data.get("awaiting_broadcast_media_list", [])
             if not media_list:
@@ -977,51 +1102,25 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         elif data in ("admin_confirm_bc_yes_apk", "admin_confirm_bc_no_apk"):
             has_apk = (data == "admin_confirm_bc_yes_apk")
-            media_list = context.user_data.pop("awaiting_broadcast_media_list", None)
-            
-            import json
-            if media_list:
-                bc_type = "multimedia"
-                bc_file_id = None
-                bc_caption = None
-                bc_text = json.dumps(media_list)
-            else:
-                # Fallback to single media item
-                bc_type = context.user_data.pop("broadcast_type", "text")
-                bc_file_id = context.user_data.pop("broadcast_file_id", None)
-                bc_caption = context.user_data.pop("broadcast_caption", None)
-                bc_text = context.user_data.pop("broadcast_text", None)
+            context.user_data["broadcast_has_apk"] = has_apk
 
-            # Build and commit broadcast database record
-            new_bc = Broadcast(
-                message_type=bc_type,
-                file_id=bc_file_id,
-                caption=bc_caption,
-                content_text=bc_text,
-                has_apk_button=has_apk,
-                apk_button_text="⬇️ Download App",
-                status="pending"
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Attach Link Button", callback_data="admin_prompt_broadcast_link"),
+                    InlineKeyboardButton("❌ No Link", callback_data="admin_confirm_bc_launch")
+                ],
+                [InlineKeyboardButton("Cancel", callback_data="admin_cancel")]
+            ])
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="🔗 *Do you want to attach a clickable link button to this broadcast?*",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
             )
-            session.add(new_bc)
-            session.commit()
-            bc_id = new_bc.id
 
-            # Trigger background sending thread
-            from bot.services.broadcast import execute_broadcast
-            import threading
-            
-            def run_custom_bg():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(execute_broadcast(bc_id, context.bot.token))
-                except Exception as thread_err:
-                    logger.error(f"Telegram thread broadcast error: {thread_err}")
-                finally:
-                    loop.close()
-
-            threading.Thread(target=run_custom_bg, daemon=True).start()
-            await query.edit_message_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
+        elif data == "admin_confirm_bc_launch":
+            await _launch_broadcast(context, chat_id)
+            await query.edit_message_text(f"📲 *Broadcast started in background!* Sending to users...")
 
         elif data.startswith("admin_remove_sub_admin_"):
             remove_id = int(data.split("_")[-1])
