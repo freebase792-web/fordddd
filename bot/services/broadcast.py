@@ -38,6 +38,9 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
         failed = 0
 
         reply_markup = None
+        buttons = []
+        if broadcast.link_url:
+            buttons.append([InlineKeyboardButton(broadcast.link_text or "🔗 Open Link", url=broadcast.link_url)])
         if broadcast.has_apk_button:
             active_apk = (
                 session.query(Content)
@@ -47,9 +50,9 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
             )
             if active_apk:
                 btn_text = f"{broadcast.apk_button_text} v{active_apk.version}" if active_apk.version else broadcast.apk_button_text
-                reply_markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(btn_text, callback_data="download_apk")]
-                ])
+                buttons.append([InlineKeyboardButton(btn_text, callback_data="download_apk")])
+        if buttons:
+            reply_markup = InlineKeyboardMarkup(buttons)
 
         progress_msg = None
         from bot.handlers.admin_upload import ADMIN_TELEGRAM_ID
