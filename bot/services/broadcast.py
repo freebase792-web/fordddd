@@ -107,7 +107,7 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
                         pass
 
             if i + CHUNK_SIZE < total:
-                await asyncio.sleep(current_sleep)
+                await asyncio.sleep(CHUNK_SLEEP)
 
         broadcast.sent_count = sent
         broadcast.failed_count = failed
