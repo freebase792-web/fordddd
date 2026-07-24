@@ -99,10 +99,17 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True, role: st
         [
             InlineKeyboardButton("📝 Welcome 📝", callback_data="admin_prompt_welcome"),
             InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo"),
-            InlineKeyboardButton("💬 Demo Msg 💬", callback_data="admin_prompt_demo_msg")
         ],
         [
-            InlineKeyboardButton("🔗 Set Demo Link 🔗", callback_data="admin_prompt_demo_link"),
+            InlineKeyboardButton("📋 Manage Demo 📋", callback_data="admin_manage_demo"),
+            InlineKeyboardButton("🗑️ Reset Demo 🗑️", callback_data="admin_reset_demo"),
+        ],
+        [
+            InlineKeyboardButton("💬 Demo Msg 💬", callback_data="admin_prompt_demo_msg"),
+            InlineKeyboardButton("🔗 Demo Link 🔗", callback_data="admin_prompt_demo_link"),
+        ],
+        [
+            InlineKeyboardButton("📱 Add APK to Demo 📱", callback_data="admin_add_apk_to_demo"),
             InlineKeyboardButton("🖼️ Set App Icon 🖼️", callback_data="admin_prompt_app_icon"),
         ],
         [
