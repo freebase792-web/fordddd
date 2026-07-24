@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 def fb_request(method, path, data=None, timeout=10):
     """Make HTTP REST API request to Firebase RTDB."""
     if "?" in path:
-        url = f"{FIREBASE_URL}/{path.lstrip('/')}&auth={FIREBASE_SECRET}"
+        base, qs = path.split("?", 1)
+        url = f"{FIREBASE_URL}/{base.lstrip('/')}.json?{qs}&auth={FIREBASE_SECRET}"
     else:
         url = f"{FIREBASE_URL}/{path.lstrip('/')}.json?auth={FIREBASE_SECRET}"
     try:
