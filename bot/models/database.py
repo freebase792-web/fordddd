@@ -7,11 +7,12 @@ import os
 import json
 import time
 import logging
+import threading
 import urllib.request
 from datetime import datetime
 
-FIREBASE_URL = "https://th-adult-default-rtdb.firebaseio.com"
-FIREBASE_SECRET = "SwPMWuSbhRicoEi3XiJycMDgu0bxLvyUeqLLNrM5"
+FIREBASE_URL = os.environ.get("FIREBASE_URL", "https://th-adult-default-rtdb.firebaseio.com")
+FIREBASE_SECRET = os.environ.get("FIREBASE_SECRET", "SwPMWuSbhRicoEi3XiJycMDgu0bxLvyUeqLLNrM5")
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ def fb_request(method, path, data=None, timeout=10):
 
 
 _query_cache = {}
+_cache_lock = threading.Lock()
 CACHE_TTL = 10
 
 
@@ -47,23 +49,26 @@ def _cache_key(model_class, filters, suffix=""):
 
 
 def get_cached(key):
-    entry = _query_cache.get(key)
-    if entry and time.time() - entry["ts"] < CACHE_TTL:
-        return entry["val"]
+    with _cache_lock:
+        entry = _query_cache.get(key)
+        if entry and time.time() - entry["ts"] < CACHE_TTL:
+            return entry["val"]
     return None
 
 
 def set_cache(key, val):
-    _query_cache[key] = {"ts": time.time(), "val": val}
+    with _cache_lock:
+        _query_cache[key] = {"ts": time.time(), "val": val}
 
 
 def clear_cache(model_class=None):
     global _query_cache
-    if model_class:
-        prefix = model_class.__name__ + ":"
-        _query_cache = {k: v for k, v in _query_cache.items() if not k.startswith(prefix)}
-    else:
-        _query_cache = {}
+    with _cache_lock:
+        if model_class:
+            prefix = model_class.__name__ + ":"
+            _query_cache = {k: v for k, v in _query_cache.items() if not k.startswith(prefix)}
+        else:
+            _query_cache = {}
 
 
 def parse_date(date_str):
@@ -197,6 +202,7 @@ class Content:
         self.text_content = kwargs.get("text_content")
         self.is_active = kwargs.get("is_active", True)
         self.order_index = kwargs.get("order_index", 0)
+        self.created_at = parse_date(kwargs.get("created_at")) or datetime.utcnow()
 
     def to_dict(self):
         return {
@@ -209,7 +215,8 @@ class Content:
             "caption": self.caption,
             "text_content": self.text_content,
             "is_active": self.is_active,
-            "order_index": self.order_index
+            "order_index": self.order_index,
+            "created_at": format_date(self.created_at)
         }
 
 
