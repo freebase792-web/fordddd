@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from bot.models.database import Session, User, Analytics, get_config
+from bot.models.database import Session, User, Analytics, get_config, set_config, fb_request
 from bot.utils.keyboards import start_keyboard, user_reply_keyboard
 from bot.utils.helpers import (
     generate_referral_code, update_streak, format_streak_message,
@@ -87,6 +87,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Log analytics
             session.add(Analytics(user_id=user_tg.id, event="start", metadata_={"is_new": True}))
+
+            track_daily_join()
+
             session.flush()
 
             # ── Real-time log notification to Admin inside Telegram ──
@@ -146,15 +149,14 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as kb_err:
             logger.error(f"Failed to dock custom reply keyboard: {kb_err}")
 
-        # Route the user dynamically based on whether they've answered the onboarding question
-        from bot.handlers.callbacks import _show_question
         from bot.handlers.content import deliver_content
+        from bot.handlers.callbacks import _show_question
 
-        if user.question_answered:
-            # Returning user who already answered Yes/No -> go straight to content
+        if user.question_answered and user.answer_yes:
             await deliver_content(update, context)
+        elif user.question_answered and not user.answer_yes:
+            await _show_question(update, context)
         else:
-            # New user -> go straight to the onboarding question
             await _show_question(update, context)
 
     except Exception as e:
@@ -162,3 +164,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Something went wrong. Please try again with /start")
     finally:
         session.close()
+
+
+def track_daily_join():
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    key = f"daily_joins_{today_str}"
+    current = get_config(key, "0")
+    try:
+        set_config(key, str(int(current) + 1))
+    except Exception:
+        pass
