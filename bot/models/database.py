@@ -190,6 +190,8 @@ class Content:
     is_active = FieldDescriptor("is_active")
     order_index = FieldDescriptor("order_index")
     created_at = FieldDescriptor("created_at")
+    link_url = FieldDescriptor("link_url")
+    link_text = FieldDescriptor("link_text")
 
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
@@ -203,6 +205,8 @@ class Content:
         self.is_active = kwargs.get("is_active", True)
         self.order_index = kwargs.get("order_index", 0)
         self.created_at = parse_date(kwargs.get("created_at")) or datetime.utcnow()
+        self.link_url = kwargs.get("link_url")
+        self.link_text = kwargs.get("link_text", "🔗 Open Link")
 
     def to_dict(self):
         return {
@@ -216,7 +220,9 @@ class Content:
             "text_content": self.text_content,
             "is_active": self.is_active,
             "order_index": self.order_index,
-            "created_at": format_date(self.created_at)
+            "created_at": format_date(self.created_at),
+            "link_url": self.link_url,
+            "link_text": self.link_text
         }
 
 
@@ -261,6 +267,8 @@ class Broadcast:
     content_text = FieldDescriptor("content_text")
     has_apk_button = FieldDescriptor("has_apk_button")
     apk_button_text = FieldDescriptor("apk_button_text")
+    link_url = FieldDescriptor("link_url")
+    link_text = FieldDescriptor("link_text")
     status = FieldDescriptor("status")
     sent_count = FieldDescriptor("sent_count")
     failed_count = FieldDescriptor("failed_count")
@@ -276,6 +284,8 @@ class Broadcast:
         self.content_text = kwargs.get("content_text")
         self.has_apk_button = kwargs.get("has_apk_button", False)
         self.apk_button_text = kwargs.get("apk_button_text", "⬇️ Download App")
+        self.link_url = kwargs.get("link_url")
+        self.link_text = kwargs.get("link_text", "🔗 Open Link")
         self.status = kwargs.get("status", "pending")
         self.sent_count = kwargs.get("sent_count", 0)
         self.failed_count = kwargs.get("failed_count", 0)
@@ -292,6 +302,8 @@ class Broadcast:
             "content_text": self.content_text,
             "has_apk_button": self.has_apk_button,
             "apk_button_text": self.apk_button_text,
+            "link_url": self.link_url,
+            "link_text": self.link_text,
             "status": self.status,
             "sent_count": self.sent_count,
             "failed_count": self.failed_count,
@@ -612,17 +624,21 @@ class FirebaseSession:
 
     def get_user_ids(self, only_active=True):
         """Get all user IDs from Firebase using shallow=true (no full records)."""
-        data = fb_request("GET", "users?shallow=true") or {}
-        if not isinstance(data, dict):
-            return []
-        ids = []
-        for k, v in data.items():
-            if v is not None:
-                try:
-                    ids.append(int(k) if k.isdigit() else k)
-                except ValueError:
-                    pass
-        return ids
+        import time
+        for attempt in range(3):
+            data = fb_request("GET", "users?shallow=true", timeout=15)
+            if data and isinstance(data, dict):
+                ids = []
+                for k, v in data.items():
+                    if v is not None:
+                        try:
+                            ids.append(int(k) if k.isdigit() else k)
+                        except ValueError:
+                            pass
+                return ids
+            if attempt < 2:
+                time.sleep(1)
+        return []
 
     def get_users_by_ids(self, ids):
         """Fetch multiple users by their IDs in batch (one request per user)."""
