@@ -70,7 +70,7 @@ def register_handlers(app: Application) -> None:
 
     # ── Regular user handlers ────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_handler), group=1)
-    app.add_handler(CallbackQueryHandler(callback_router), group=1)
+    app.add_handler(CallbackQueryHandler(callback_router, pattern="^(?!admin_)"), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
 
 
