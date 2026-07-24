@@ -178,7 +178,10 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
             broadcast.status = "failed"
             session.commit()
     finally:
-        await bot.close()
+        try:
+            await bot.close()
+        except Exception:
+            pass
         session.close()
 
 
