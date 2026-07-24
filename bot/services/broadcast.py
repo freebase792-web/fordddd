@@ -3,7 +3,7 @@ import logging
 import json
 from datetime import datetime
 from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.error import TelegramError
+from telegram.error import TelegramError, BadRequest
 from telegram.constants import ParseMode
 
 from bot.models.database import Session, Broadcast, Content, fb_request
@@ -214,7 +214,13 @@ async def _send_to_user(
             item_markup = reply_markup if idx == len(items) - 1 else None
 
             if msg_type == "text":
-                await bot.send_message(chat_id=user_id, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=item_markup)
+                try:
+                    await bot.send_message(chat_id=user_id, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=item_markup)
+                except BadRequest as parse_err:
+                    if "parse" in str(parse_err).lower():
+                        await bot.send_message(chat_id=user_id, text=text, reply_markup=item_markup)
+                    else:
+                        raise
             elif msg_type == "image":
                 await bot.send_photo(chat_id=user_id, photo=file_id, caption=caption, parse_mode=ParseMode.MARKDOWN, reply_markup=item_markup)
             elif msg_type == "video":
