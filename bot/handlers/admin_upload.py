@@ -1074,14 +1074,12 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         elif data == "admin_prompt_broadcast_link":
             context.user_data["awaiting_broadcast_link"] = True
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    "🔗 *Send the link URL and optional button label.*\n\n"
-                    "Format:\n"
-                    "`https://example.com\nButton Label`\n\n"
-                    "Or send just `skip` to continue without a link."
-                ),
+            await _safe_edit(
+                query,
+                "🔗 *Send the link URL and optional button label.*\n\n"
+                "Format:\n"
+                "`https://example.com\nButton Label`\n\n"
+                "Or send just `skip` to continue without a link.",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -1090,7 +1088,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             if not media_list:
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ No items added yet. Please send some media or text first.")
                 return
-                
+
             keyboard = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ Attach APK Button", callback_data="admin_confirm_bc_yes_apk"),
@@ -1098,9 +1096,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 ],
                 [InlineKeyboardButton("Cancel", callback_data="admin_cancel")]
             ])
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"📊 *Multi-Media sequence contains {len(media_list)} items.*\n\nDo you want to attach the APK download button below this broadcast?",
+            await _safe_edit(
+                query,
+                f"📊 *Multi-Media sequence contains {len(media_list)} items.*\n\nDo you want to attach the APK download button below this broadcast?",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
@@ -1116,9 +1114,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 ],
                 [InlineKeyboardButton("Cancel", callback_data="admin_cancel")]
             ])
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="🔗 *Do you want to attach a clickable link button to this broadcast?*",
+            await _safe_edit(
+                query,
+                "🔗 *Do you want to attach a clickable link button to this broadcast?*",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
