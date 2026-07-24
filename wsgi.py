@@ -18,6 +18,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
+_required_vars = ["BOT_TOKEN", "FIREBASE_URL", "FIREBASE_SECRET"]
+for _var in _required_vars:
+    if not os.environ.get(_var):
+        logging.warning(f"⚠️ Environment variable {_var} is not set! Bot may not work correctly.")
+
 # Initialize database on startup
 from bot.models.database import init_db
 try:
@@ -111,38 +116,41 @@ except Exception as e:
 def run_keep_alive():
     import time
     import urllib.request
-    
-    # Wait for the server to spin up fully
-    time.sleep(10)
-    
+    import ssl
+
     ping_url = f"{WEBHOOK_URL.rstrip('/')}/health"
-    root_url = f"{WEBHOOK_URL.rstrip('/')}/"
-    logging.info(f"🟢 Keep-alive service active. Targets: {ping_url} and {root_url}")
-    
+    logging.info(f"🟢 Keep-alive service configured. Target: {ping_url}")
+
+    wait_attempts = 0
+    while wait_attempts < 30:
+        try:
+            req = urllib.request.Request(ping_url, headers={"User-Agent": "NexusBot-KeepAlive"})
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
+                if r.getcode() == 200:
+                    logging.info("✅ Server is up. Keep-alive now active.")
+                    break
+        except Exception:
+            pass
+        wait_attempts += 1
+        time.sleep(2)
+    else:
+        logging.warning("⚠️ Server not detected after 60s, keep-alive starting anyway.")
+
     while True:
         try:
-            # 1. Ping /health
-            req = urllib.request.Request(
-                ping_url,
-                headers={"User-Agent": "NexusBot-KeepAlive-Daemon"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                pass
-
-            # 2. Ping / (root) to simulate a real user hitting the landing page
-            root_req = urllib.request.Request(
-                root_url,
-                headers={"User-Agent": "NexusBot-KeepAlive-Daemon"}
-            )
-            with urllib.request.urlopen(root_req, timeout=15) as response:
-                if response.getcode() in (200, 302):
-                    logging.info("💓 Keep-alive self-ping sequence successful.")
-                else:
-                    logging.warning(f"⚠️ Keep-alive sequence returned status: {response.getcode()}")
+            req = urllib.request.Request(ping_url, headers={"User-Agent": "NexusBot-KeepAlive"})
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+                if r.getcode() == 200:
+                    logging.info("💓 Keep-alive ping successful.")
         except Exception as ping_err:
-            logging.warning(f"❌ Keep-alive self-ping sequence failed: {ping_err}")
-        
-        # Sleep for 3 minutes (180 seconds) to aggressively prevent sleeping
+            logging.warning(f"❌ Keep-alive ping failed: {ping_err}")
+
         time.sleep(180)
 
 if WEBHOOK_URL:

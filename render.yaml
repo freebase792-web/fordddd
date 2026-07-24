@@ -4,8 +4,8 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt && python -c "from bot.models.database import init_db; init_db()"
-    startCommand: gunicorn wsgi:app --workers 2 --threads 8 --bind 0.0.0.0:$PORT --timeout 120
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -15,20 +15,13 @@ services:
         value: admin
       - key: ADMIN_TELEGRAM_ID
         sync: false
-      - key: DATABASE_URL
-        fromDatabase:
-          name: nexusbot-db
-          property: connectionString
       - key: WEBHOOK_URL
         sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: PORT
         value: "8000"
-
-databases:
-  - name: nexusbot-db
-    region: oregon
-    plan: free
-    databaseName: nexusbot
-    user: nexusbot_user
+      - key: FIREBASE_URL
+        sync: false
+      - key: FIREBASE_SECRET
+        sync: false
