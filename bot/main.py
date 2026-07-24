@@ -39,6 +39,12 @@ _ptb_app_lock = threading.Lock()
 def register_handlers(app: Application) -> None:
     """Register all bot handlers on the given application instance."""
     # ── Admin-only handlers (run BEFORE user handlers) ──────────────
+    # Admin inline button callbacks (always registered, handler checks permissions)
+    app.add_handler(CallbackQueryHandler(
+        admin_callback_handler,
+        pattern="^admin_",
+    ), group=0)
+
     # These only activate if sender is the designated admin user ID.
     if ADMIN_TELEGRAM_ID:
         admin_filter = filters.User(user_id=ADMIN_TELEGRAM_ID)
@@ -57,12 +63,6 @@ def register_handlers(app: Application) -> None:
         app.add_handler(MessageHandler(
             admin_filter & filters.TEXT & ~filters.COMMAND,
             admin_text_handler,
-        ), group=0)
-
-        # Admin inline button callbacks (e.g. "Save as Content")
-        app.add_handler(CallbackQueryHandler(
-            admin_callback_handler,
-            pattern="^admin_",
         ), group=0)
         
         # Admin sends /admin command
