@@ -179,7 +179,8 @@ async def execute_broadcast(broadcast_id: int, bot_token: str):
             session.commit()
     finally:
         try:
-            await bot.close()
+            if hasattr(bot, '_http_client') and bot._http_client:
+                await bot._http_client.aclose()
         except Exception:
             pass
         session.close()
