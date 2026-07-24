@@ -82,6 +82,7 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True, role: st
 
     buttons = [
         [InlineKeyboardButton("📢 Broadcast Media 📢", callback_data="admin_prompt_broadcast_media")],
+        [InlineKeyboardButton("📝 Send Text Broadcast 📝", callback_data="admin_prompt_send_text")],
         [InlineKeyboardButton("📲 Send APK To All 📲", callback_data="admin_broadcast_apk")],
         [
             InlineKeyboardButton(demo_status, callback_data="admin_toggle_demo"),
@@ -101,7 +102,10 @@ def admin_panel_keyboard(demo_on: bool = True, bot_active: bool = True, role: st
             InlineKeyboardButton("💬 Demo Msg 💬", callback_data="admin_prompt_demo_msg")
         ],
         [
+            InlineKeyboardButton("🔗 Set Demo Link 🔗", callback_data="admin_prompt_demo_link"),
             InlineKeyboardButton("🖼️ Set App Icon 🖼️", callback_data="admin_prompt_app_icon"),
+        ],
+        [
             InlineKeyboardButton("❓ Edit Question ❓", callback_data="admin_prompt_edit_question")
         ],
         [
