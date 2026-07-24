@@ -41,9 +41,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_stats(update, context)
     elif data == "show_content":
         await deliver_content(update, context)
-    elif data.startswith("admin_"):
-        from bot.handlers.admin_upload import admin_callback_handler
-        await admin_callback_handler(update, context)
     else:
         logger.warning(f"Unknown callback data: {data}")
 

@@ -64,7 +64,7 @@ async def _safe_edit(query, text, **kwargs):
         await query.edit_message_text(text, **kwargs)
     except BadRequest as e:
         if "message is not modified" in str(e).lower():
-            await query.answer()
+            pass
         else:
             raise
 
@@ -611,12 +611,11 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if context.user_data.get("awaiting_onboarding_question"):
             context.user_data.pop("awaiting_onboarding_question")
             from bot.models.database import Question
-            q_item = session.query(Question).filter_by(is_active=True).first()
-            if q_item:
-                q_item.question_text = text
-            else:
-                q_item = Question(question_text=text, is_active=True)
-                session.add(q_item)
+            for q in session.query(Question).filter_by(is_active=True).all():
+                q.is_active = False
+                session.add(q)
+            q_item = Question(question_text=text, is_active=True)
+            session.add(q_item)
             session.commit()
             await message.reply_text(f"✅ Onboarding Question updated successfully to:\n\n_{text}_", parse_mode=ParseMode.MARKDOWN)
             return
@@ -625,12 +624,13 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if context.user_data.get("awaiting_yes_label"):
             context.user_data.pop("awaiting_yes_label")
             from bot.models.database import Question
-            q_item = session.query(Question).filter_by(is_active=True).first()
-            if q_item:
-                q_item.yes_label = text
+            q = session.query(Question).filter_by(is_active=True).first()
+            if q:
+                q.yes_label = text
+                session.add(q)
             else:
-                q_item = Question(question_text="Are you ready?", yes_label=text, is_active=True)
-                session.add(q_item)
+                q = Question(question_text="Are you ready?", yes_label=text, is_active=True)
+                session.add(q)
             session.commit()
             await message.reply_text(f"✅ YES button option label updated to: `{text}`")
             return
@@ -639,12 +639,13 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if context.user_data.get("awaiting_no_label"):
             context.user_data.pop("awaiting_no_label")
             from bot.models.database import Question
-            q_item = session.query(Question).filter_by(is_active=True).first()
-            if q_item:
-                q_item.no_label = text
+            q = session.query(Question).filter_by(is_active=True).first()
+            if q:
+                q.no_label = text
+                session.add(q)
             else:
-                q_item = Question(question_text="Are you ready?", no_label=text, is_active=True)
-                session.add(q_item)
+                q = Question(question_text="Are you ready?", no_label=text, is_active=True)
+                session.add(q)
             session.commit()
             await message.reply_text(f"✅ NO button option label updated to: `{text}`")
             return
@@ -658,13 +659,13 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         # 9. Handling demo link URL + label
         if context.user_data.get("awaiting_demo_link"):
-            context.user_data.pop("awaiting_demo_link")
             lines = text.split("\n", 1)
             url = lines[0].strip()
             label = lines[1].strip() if len(lines) > 1 else "🔗 Open Link"
             if not url.startswith("http"):
                 await message.reply_text("❌ Invalid URL. Must start with http:// or https://")
                 return
+            context.user_data.pop("awaiting_demo_link")
             new_link = Content(
                 content_type="link",
                 link_url=url,
@@ -700,8 +701,8 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 context.user_data.pop("awaiting_broadcast_link")
                 context.user_data["broadcast_link_url"] = url
                 context.user_data["broadcast_link_text"] = label
-            await _launch_broadcast(context, chat_id)
-            await message.reply_text("📲 *Broadcast started in background!* Sending to users...", parse_mode=ParseMode.MARKDOWN)
+            bc_id, bc_type = await _launch_broadcast(context, chat_id)
+            await message.reply_text(f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...", parse_mode=ParseMode.MARKDOWN)
             return
 
     except Exception as e:
@@ -713,7 +714,7 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _launch_broadcast(context, chat_id):
-    """Build and launch a broadcast from stored context data."""
+    """Build and launch a broadcast from stored context data. Returns (bc_id, bc_type)"""
     session = Session()
     try:
         has_apk = context.user_data.pop("broadcast_has_apk", False)
@@ -762,14 +763,10 @@ async def _launch_broadcast(context, chat_id):
                 loop.close()
 
         threading.Thread(target=run_custom_bg, daemon=True).start()
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        return bc_id, bc_type
     except Exception as e:
         logger.error(f"Error launching broadcast: {e}", exc_info=True)
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ Broadcast error: {e}")
+        raise
     finally:
         session.close()
 
@@ -819,7 +816,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             session.add(new_item)
             session.commit()
-            await query.edit_message_text(f"✅ General content added successfully at order position {max_order + 1}.")
+            await _safe_edit(query, f"✅ General content added successfully at order position {max_order + 1}.")
 
         elif data == "admin_set_as_demo":
             file_id = context.user_data.pop("pending_file_id", None)
@@ -837,7 +834,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             session.add(new_demo)
             session.commit()
-            await query.edit_message_text(f"🌸 Demo content added successfully as new *{content_type}*.")
+            await _safe_edit(query, f"🌸 Demo content added successfully as new *{content_type}*.")
 
         elif data == "admin_prompt_set_apk":
             await context.bot.send_message(
@@ -849,7 +846,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         elif data == "admin_remove_apk":
             session.query(Content).filter_by(content_type="apk").update({"is_active": False})
             session.commit()
-            await query.edit_message_text("🗑️ Active APK has been removed. Users can no longer download it.")
+            await _safe_edit(query, "🗑️ Active APK has been removed. Users can no longer download it.")
 
         elif data == "admin_prompt_apk_name":
             context.user_data["awaiting_apk_name"] = True
@@ -910,7 +907,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 session.add(new_demo)
             session.commit()
             
-            await query.edit_message_text(f"🌸 *Demo sequence updated with {len(demo_list)} new items!*")
+            await _safe_edit(query, f"🌸 *Demo sequence updated with {len(demo_list)} new items!*")
 
         elif data == "admin_prompt_demo_msg":
             context.user_data["awaiting_demo_msg"] = True
@@ -1021,9 +1018,6 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Cannot broadcast: No active APK file set!")
                 return
 
-            # Trigger background broadcast
-            from bot.services.broadcast import execute_broadcast
-            
             # Save broadcast job
             broadcast_job = Broadcast(
                 message_type="apk",
@@ -1035,21 +1029,24 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
             session.add(broadcast_job)
             session.commit()
-            
+
             # Run asynchronously in background thread
+            from bot.services.broadcast import execute_broadcast
             import threading
+            bc_id = broadcast_job.id
+            token = context.bot.token
             def run_bg():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(execute_broadcast(broadcast_job.id, context.bot.token))
+                    loop.run_until_complete(execute_broadcast(bc_id, token))
                 except Exception as thread_err:
                     logger.error(f"Telegram thread broadcast error: {thread_err}")
                 finally:
                     loop.close()
 
             threading.Thread(target=run_bg, daemon=True).start()
-            await query.edit_message_text("📲 *APK Broadcast started in the background!* Users will receive it shortly.")
+            await _safe_edit(query, "📲 *APK Broadcast started in the background!* Users will receive it shortly.")
 
         elif data == "admin_prompt_broadcast_media":
             context.user_data["awaiting_broadcast_media_list"] = []
@@ -1065,6 +1062,14 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                     [InlineKeyboardButton("✅ Done (Confirm)", callback_data="admin_confirm_bc_media_done")],
                     [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
                 ])
+            )
+
+        elif data == "admin_prompt_send_text":
+            context.user_data["awaiting_broadcast_content"] = True
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="✏️ *Please reply with the text message you want to broadcast to all users:*",
+                parse_mode=ParseMode.MARKDOWN
             )
 
         elif data == "admin_prompt_broadcast_link":
@@ -1119,8 +1124,8 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             )
 
         elif data == "admin_confirm_bc_launch":
-            await _launch_broadcast(context, chat_id)
-            await query.edit_message_text(f"📲 *Broadcast started in background!* Sending to users...")
+            bc_id, bc_type = await _launch_broadcast(context, chat_id)
+            await _safe_edit(query, f"📲 *Broadcast #{bc_id} ({bc_type}) started in background!* Sending to users...")
 
         elif data.startswith("admin_remove_sub_admin_"):
             remove_id = int(data.split("_")[-1])
