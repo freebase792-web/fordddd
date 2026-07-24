@@ -47,7 +47,21 @@ def _run_async(coro):
     if _bot_loop is None:
         _start_bot_event_loop()
     fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
-    return fut.result()
+    return fut.result(timeout=30)
+
+
+def _run_async_background(coro):
+    if _bot_loop is None:
+        _start_bot_event_loop()
+    fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
+    def _log_error(f):
+        try:
+            exc = f.exception()
+            if exc:
+                logger.error(f"Background async error: {exc}", exc_info=exc)
+        except asyncio.CancelledError:
+            pass
+    fut.add_done_callback(_log_error)
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "nexusbot-dev-secret")
@@ -143,18 +157,16 @@ def dashboard():
             .all()
         )
 
-        # Daily joins (last 7 days) — cached 60s to avoid re-fetching 20k users
-        daily_stats = get_cached("dashboard:daily_stats")
-        if daily_stats is None:
-            all_users = db.query(User).all()
-            daily_stats_dict = {}
-            for u in all_users:
-                if u.joined_at:
-                    day = u.joined_at.date() if hasattr(u.joined_at, 'date') else u.joined_at
-                    daily_stats_dict[day] = daily_stats_dict.get(day, 0) + 1
-            sorted_days = sorted(daily_stats_dict.items(), key=lambda x: x[0], reverse=True)[:7]
-            daily_stats = [(day, count) for day, count in sorted_days]
-            set_cache("dashboard:daily_stats", daily_stats)
+        daily_stats = []
+        from datetime import timedelta
+        for i in range(6, -1, -1):
+            day = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
+            count_str = get_config(f"daily_joins_{day}", "0")
+            try:
+                count = int(count_str)
+            except (ValueError, TypeError):
+                count = 0
+            daily_stats.append((day, count))
 
         bot_enabled = get_config("bot_enabled", "true") == "true"
         active_apk = db.query(Content).filter_by(is_active=True, content_type="apk").order_by(Content.id.desc()).first()
@@ -198,18 +210,20 @@ def toggle_bot():
 def register_webhook():
     """Re-register the bot webhook."""
     try:
-        import requests as req
+        import json, urllib.request
         webhook_path = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-        resp = req.post(
+        data_json = json.dumps({"url": webhook_path, "drop_pending_updates": True}).encode("utf-8")
+        req = urllib.request.Request(
             f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-            json={"url": webhook_path, "drop_pending_updates": True},
-            timeout=10,
+            data=data_json,
+            headers={"Content-Type": "application/json"},
         )
-        data = resp.json()
-        if data.get("ok"):
-            flash(f"✅ Webhook registered: {webhook_path}", "success")
-        else:
-            flash(f"❌ Webhook error: {data.get('description')}", "danger")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("ok"):
+                flash(f"✅ Webhook registered: {webhook_path}", "success")
+            else:
+                flash(f"❌ Webhook error: {data.get('description')}", "danger")
     except Exception as e:
         flash(f"❌ Failed: {e}", "danger")
     return redirect(url_for("dashboard"))
@@ -750,7 +764,7 @@ def telegram_webhook(token):
         await ptb_app.process_update(update)
 
     try:
-        _run_async(process())
+        _run_async_background(process())
     except Exception as e:
         logger.error(f"Error processing update: {e}", exc_info=True)
 
