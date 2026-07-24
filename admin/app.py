@@ -27,39 +27,50 @@ from bot.models.database import get_cached, set_cache
 
 _bot_loop: asyncio.AbstractEventLoop = None
 _bot_thread: threading.Thread = None
+_event_loop_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
 
-def _start_bot_event_loop():
+def _ensure_event_loop():
     global _bot_loop, _bot_thread
-    if _bot_loop is not None:
-        return
-    _bot_loop = asyncio.new_event_loop()
-    _bot_thread = threading.Thread(
-        target=_bot_loop.run_forever, daemon=True, name="bot-event-loop"
-    )
-    _bot_thread.start()
-    logger.info("Background bot event loop started.")
+    with _event_loop_lock:
+        if _bot_loop is not None and _bot_thread is not None and _bot_thread.is_alive():
+            return _bot_loop
+        if _bot_loop is not None:
+            try:
+                _bot_loop.call_soon_threadsafe(_bot_loop.stop)
+            except Exception:
+                pass
+        _bot_loop = asyncio.new_event_loop()
+        _bot_thread = threading.Thread(
+            target=_bot_loop.run_forever, daemon=True, name="bot-event-loop"
+        )
+        _bot_thread.start()
+        logger.info("Background bot event loop started (or restarted).")
+        return _bot_loop
+
+
+def _start_bot_event_loop():
+    _ensure_event_loop()
 
 
 def _run_async(coro):
-    if _bot_loop is None:
-        _start_bot_event_loop()
-    fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
-    return fut.result(timeout=30)
+    loop = _ensure_event_loop()
+    fut = asyncio.run_coroutine_threadsafe(coro, loop)
+    return fut.result()
 
 
 def _run_async_background(coro):
-    if _bot_loop is None:
-        _start_bot_event_loop()
-    fut = asyncio.run_coroutine_threadsafe(coro, _bot_loop)
+    loop = _ensure_event_loop()
+    fut = asyncio.run_coroutine_threadsafe(coro, loop)
     def _log_error(f):
         try:
-            exc = f.exception()
-            if exc:
-                logger.error(f"Background async error: {exc}", exc_info=exc)
-        except asyncio.CancelledError:
+            if not f.cancelled():
+                exc = f.exception()
+                if exc:
+                    logger.error(f"Background async error: {exc}", exc_info=exc)
+        except Exception:
             pass
     fut.add_done_callback(_log_error)
 
@@ -757,16 +768,15 @@ def telegram_webhook(token):
 
     data = request.get_json(force=True)
     ptb_app = get_ptb_app()
-    _start_bot_event_loop()
 
     async def process():
-        update = Update.de_json(data, ptb_app.bot)
-        await ptb_app.process_update(update)
+        try:
+            update = Update.de_json(data, ptb_app.bot)
+            await ptb_app.process_update(update)
+        except Exception as e:
+            logger.error(f"Error processing update: {e}", exc_info=True)
 
-    try:
-        _run_async_background(process())
-    except Exception as e:
-        logger.error(f"Error processing update: {e}", exc_info=True)
+    _run_async_background(process())
 
     return "ok", 200
 
