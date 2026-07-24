@@ -112,6 +112,9 @@ async def deliver_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif item.content_type == "apk":
                     continue
 
+                elif item.content_type == "apk_demo":
+                    await send_apk_to_user(update, context)
+
                 elif item.content_type == "link":
                     link_kb = InlineKeyboardMarkup([
                         [InlineKeyboardButton(item.link_text or "🔗 Open Link", url=item.link_url or item.text_content)]

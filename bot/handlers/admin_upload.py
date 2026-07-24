@@ -941,6 +941,91 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode=ParseMode.MARKDOWN
             )
 
+        elif data == "admin_manage_demo":
+            all_items = session.query(Content).filter_by(is_active=True).all()
+            demo_items = [c for c in all_items if c.content_type != "apk"]
+            if not demo_items:
+                await _safe_edit(query, "🌸 *Demo is empty.*\n\nUse the buttons below to add content.", reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🌸 Set Demo 🌸", callback_data="admin_prompt_demo")],
+                    [InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")]
+                ]))
+            else:
+                lines = ["📋 *Current Demo Items:*\n"]
+                keyboard = []
+                for i, item in enumerate(demo_items, 1):
+                    lbl = f"{i}. {item.content_type}"
+                    if item.content_type == "text" and item.text_content:
+                        lbl += f": {item.text_content[:30]}"
+                    elif item.file_name:
+                        lbl += f" — {item.file_name}"
+                    lines.append(f"  {i}. `{item.content_type}` — {item.text_content[:40] if item.text_content else item.file_id[:20]}")
+                    keyboard.append([InlineKeyboardButton(f"❌ Remove #{i}", callback_data=f"admin_remove_demo_item_{item.id}")])
+                keyboard.append([InlineKeyboardButton("🌸 Add More 🌸", callback_data="admin_prompt_demo"), InlineKeyboardButton("◀️ Back", callback_data="admin_back_to_panel")])
+                await _safe_edit(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+
+        elif data == "admin_reset_demo":
+            await _safe_edit(
+                query,
+                "🗑️ *Are you sure you want to reset ALL demo content?*\n\n"
+                "This will remove every item from the demo sequence. This cannot be undone.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Yes, Reset Demo", callback_data="admin_confirm_reset_demo")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="admin_manage_demo")]
+                ])
+            )
+
+        elif data == "admin_confirm_reset_demo":
+            all_items = session.query(Content).filter_by(is_active=True).all()
+            count = 0
+            for c in all_items:
+                if c.content_type != "apk":
+                    c.is_active = False
+                    session.add(c)
+                    count += 1
+            session.commit()
+            await _safe_edit(query, f"🗑️ *Demo reset complete!* Removed {count} item{'s' if count != 1 else ''}.")
+
+        elif data.startswith("admin_remove_demo_item_"):
+            remove_id = int(data.split("_")[-1])
+            item = session.get(Content, remove_id)
+            if item:
+                item.is_active = False
+                session.add(item)
+                session.commit()
+                await query.answer("✅ Item removed from demo.")
+            else:
+                await query.answer("⚠️ Item not found.")
+            from bot.utils.keyboards import admin_panel_keyboard
+            text, _ = get_admin_panel_details(user_id=user.id)
+            keyboard = admin_panel_keyboard(get_config("demo_enabled", "true").lower() == "true", get_config("bot_enabled", "true").lower() == "true", get_admin_role(user.id))
+            try:
+                await _safe_edit(query, text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+            except Exception:
+                pass
+
+        elif data == "admin_add_apk_to_demo":
+            active_apk = session.query(Content).filter_by(is_active=True, content_type="apk").order_by(Content.id.desc()).first()
+            if not active_apk:
+                await query.answer("⚠️ No active APK found.")
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ No active APK found. Upload an APK file first!")
+            else:
+                existing = session.query(Content).filter_by(is_active=True, content_type="apk_demo").all()
+                if existing:
+                    await query.answer("✅ APK already in demo.")
+                    await context.bot.send_message(chat_id=chat_id, text="✅ *APK is already in the demo sequence!*")
+                else:
+                    new_item = Content(
+                        content_type="apk_demo",
+                        file_id=active_apk.file_id,
+                        file_name=active_apk.file_name,
+                        caption="📱 *Here is your exclusive download!*",
+                        is_active=True,
+                        order_index=999,
+                    )
+                    session.add(new_item)
+                    session.commit()
+                    await _safe_edit(query, f"✅ *APK added to demo sequence!*\n\nUsers will receive the APK during the demo flow.")
+
         elif data == "admin_prompt_edit_yes_opt":
             context.user_data["awaiting_yes_label"] = True
             await context.bot.send_message(
