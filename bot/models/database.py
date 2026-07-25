@@ -676,12 +676,8 @@ def init_db():
     # 1. Seed configs only if they don't exist
     if not get_config("welcome_text"):
         set_config("welcome_text", "Welcome to the Premium Portal! 🚀")
-    if not get_config("yes_intro_text"):
-        set_config("yes_intro_text", "🎊 *Amazing! You're in!*\n\nHere's your exclusive content package 👇")
     if not get_config("no_response_text"):
         set_config("no_response_text", "😢 No worries! Whenever you change your mind,\njust tap /start and we'll be here. 🌟")
-    if not get_config("demo_closing_text"):
-        set_config("demo_closing_text", "✨ *There you go, {name}!*\n\nDon't just run away now! Use the bottom buttons to download the APK and invite your friends. secretly... 🤫")
     if not get_config("bot_enabled"):
         set_config("bot_enabled", "true")
     if not get_config("demo_enabled"):
