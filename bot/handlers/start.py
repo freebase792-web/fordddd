@@ -150,14 +150,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to dock custom reply keyboard: {kb_err}")
 
         from bot.handlers.content import deliver_content
-        from bot.handlers.callbacks import _show_question
 
-        if user.question_answered and user.answer_yes:
-            await deliver_content(update, context)
-        elif user.question_answered and not user.answer_yes:
-            await _show_question(update, context)
-        else:
-            await _show_question(update, context)
+        await deliver_content(update, context)
 
     except Exception as e:
         logger.error(f"Error in start_handler: {e}", exc_info=True)

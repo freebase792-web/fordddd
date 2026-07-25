@@ -367,7 +367,7 @@ async def _save_apk_prompt(
                 InlineKeyboardButton("✏️ Edit Version/Changelog", callback_data=f"admin_edit_apk_meta_{new_apk.id}"),
                 InlineKeyboardButton("📲 Send to All Users", callback_data="admin_broadcast_apk")
             ],
-            [InlineKeyboardButton("✅ Done", callback_data="admin_cancel")]
+            [InlineKeyboardButton("✅ Done", callback_data="admin_apk_done")]
         ])
 
         await message.reply_text(
@@ -1252,6 +1252,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             text, keyboard = get_admin_panel_details(user_id=user.id)
             await _safe_edit(query, text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
+        elif data == "admin_apk_done":
+            context.user_data.clear()
+            await _safe_edit(query, "✅ APK configured and live!")
         elif data == "admin_cancel":
             context.user_data.clear()
             await _safe_edit(query, "❌ Operations cancelled.")
